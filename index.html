@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wallace Archive Reader</title>
+
+  <link rel="stylesheet" href="reader.css" />
+
+  <script async src="https://a.magsrv.com/ad-provider.js"></script>
+  <script>
+    window.AdProvider = window.AdProvider || [];
+  </script>
+</head>
+<body>
+
+  <header class="hero">
+    <h1 id="workTitle">Loading…</h1>
+    <p>At most they simply have to scroll. And that’s easy.</p>
+  </header>
+
+  <div class="top-banner-shell">
+    <div class="top-banner-bar">
+      <div class="top-banner-inner exo-slot" id="topBannerSlot"></div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside class="rail rail-left">
+      <div class="rail-stack">
+        <div class="slot exo-slot" id="leftRailSlot1"></div>
+        <div class="slot exo-slot" id="leftRailSlot2"></div>
+        <div class="slot exo-slot" id="leftRailSlot3"></div>
+      </div>
+    </aside>
+
+    <main class="reader" id="reader"></main>
+
+    <aside class="rail rail-right">
+      <div class="rail-stack">
+        <div class="slot exo-slot" id="rightRailSlot1"></div>
+        <div class="slot exo-slot" id="rightRailSlot2"></div>
+        <div class="slot exo-slot" id="rightRailSlot3"></div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="application/javascript">
+  (function() {
+    var adConfig = {
+      ads_host: "a.pemsrv.com",
+      syndication_host: "s.pemsrv.com",
+      idzone: 5865422,
+      popup_fallback: false,
+      popup_force: false,
+      chrome_enabled: true,
+      new_tab: false,
+      frequency_period: 720,
+      frequency_count: 1,
+      trigger_method: 3,
+      trigger_class: "",
+      trigger_delay: 0,
+      capping_enabled: true,
+      tcf_enabled: true,
+      only_inline: false
+    };
+
+    var s = document.createElement("script");
+    s.type = "application/javascript";
+    s.async = true;
+    s.src = "//" + adConfig.ads_host + "/popunder1000.js";
+    s.id = "popmagicldr";
+
+    for (var k in adConfig) {
+      if (!Object.prototype.hasOwnProperty.call(adConfig, k)) continue;
+      if (k === "ads_host" || k === "syndication_host") continue;
+      s.setAttribute("data-exo-" + k, adConfig[k]);
+    }
+
+    document.body.appendChild(s);
+  })();
+  </script>
+
+  <script src="reader.js"></script>
+</body>
+</html>
