@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Manga Archive</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitcount+Prop+Double+Ink:wght@100..900&family=Jersey+25&family=Pangolin&family=Press+Start+2P&family=Rubik+Broken+Fax&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="reader.css" />
+
+<script async type="application/javascript" src="https://a.magsrv.com/ad-provider.js"></script>
+<script>
+  window.AdProvider = window.AdProvider || [];
+</script>
+</head>
+
+<body>
+
+<header class="hero">
+  <h1 class="hero-title">Manga Archive</h1>
+  <p class="hero-sub" id="currentWorkTitle">Expand • Read • Scroll</p>
+
+  <section class="works-strip-wrap" aria-label="Top works navigation">
+    <p class="works-strip-label">Library</p>
+    <nav class="works-strip" id="worksNav"></nav>
+  </section>
+
+  <div class="toolbar">
+    <button class="smallbtn" id="openFirstTop" type="button">First Chapter</button>
+    <button class="smallbtn" id="openLastWorkTop" type="button">Last Work</button>
+  </div>
+
+  <div class="meta" id="meta">Loading…</div>
+
+  <section class="search-zone" id="searchSection">
+    <div class="search-label">SEARCH BAR</div>
+
+    <nav class="nav" id="nav" style="display:none;"></nav>
+
+    <div class="search">
+      <input id="q" type="search" placeholder="Type… e.g. Book 1 or Chapter 12" autocomplete="off" />
+      <span class="kbd">Enter</span>
+      <button class="smallbtn" id="clear" type="button">Clear</button>
+    </div>
+  </section>
+
+  <div class="top-banner-shell">
+    <div class="top-banner-bar">
+      <div class="top-banner-inner exo-slot" data-zone="5865232"></div>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="rail library-rail" aria-label="Other works archive">
+    <div class="library-shell">
+      <div class="library-title">Other Works</div>
+      <div class="library-nav" id="libraryNav"></div>
+    </div>
+  </aside>
+
+  <main class="center">
+    <div id="dynamicTopPager"></div>
+    <div id="container"></div>
+    <div id="dynamicBottomPager"></div>
+  </main>
+
+  <aside class="rail rail-right" aria-label="Right ads">
+    <div class="rail-stack" id="rightRail">
+      <div class="slot exo-slot" data-zone="5865240"></div>
+      <div class="slot exo-slot" data-zone="5865240"></div>
+      <div class="slot exo-slot" data-zone="5865240"></div>
+    </div>
+  </aside>
+</div>
+
+<script type="application/javascript">
+(function(){
+  var adConfig = {
+    ads_host: "a.pemsrv.com",
+    syndication_host: "s.pemsrv.com",
+    idzone: 5865422,
+    popup_fallback: false,
+    popup_force: false,
+    chrome_enabled: true,
+    new_tab: false,
+    frequency_period: 720,
+    frequency_count: 1,
+    trigger_method: 3,
+    trigger_class: "",
+    trigger_delay: 0,
+    capping_enabled: true,
+    tcf_enabled: true,
+    only_inline: false
+  };
+
+  var s = document.createElement("script");
+  s.type = "application/javascript";
+  s.async = true;
+  s.src = "//" + adConfig.ads_host + "/popunder1000.js";
+  s.id = "popmagicldr";
+
+  for (var k in adConfig){
+    if(!Object.prototype.hasOwnProperty.call(adConfig, k)) continue;
+    if(k === "ads_host" || k === "syndication_host") continue;
+    s.setAttribute("data-exo-" + k, adConfig[k]);
+  }
+
+  document.body.appendChild(s);
+})();
+</script>
+
+<script defer src="index.js"></script>
+</body>
+</html>
