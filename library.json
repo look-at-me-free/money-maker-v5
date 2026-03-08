@@ -1,0 +1,18 @@
+{
+  "works": [
+    {
+      "slug": "barato",
+      "label": "Barato",
+
+      "children": [
+        {
+          "type": "reader",
+          "id": "Book 1",
+          "slug": "barato-book-1",
+
+          "reader": "https://pub-cd01009a7c6c464aa0b093e33aa5ae51.r2.dev/works/barato/book_1/book_1.json"
+        }
+      ]
+    }
+  ]
+}
