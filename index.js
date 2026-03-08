@@ -1,47 +1,49 @@
 (() => {
-  // =========================
+  // =========================================================
   // CONFIG
-  // =========================
+  // =========================================================
   const LIBRARY_FILE = "library.json";
 
-  const UI_PAGE_SIZE = 20;
+  const AD_ZONES = {
+    topBanner: "5865232",
+    leftRail: "5865238",
+    rightRail: "5865240",
+    between: "5865236",
+    end: "5865236"
+  };
 
-  const BETWEEN_ZONE = "5865236";
-  const END_ZONE = "5865236";
-  const END_ADS = 24;
-  const BETWEEN_EVERY = 2;
-  const BETWEEN_SLOTS = 3;
+  const DEFAULTS = {
+    betweenEvery: 2,
+    betweenSlots: 3,
+    finalBlock: 12,
+    scrollMaxMs: 1500,
+    searchDebounceMs: 90,
+    searchMaxResults: 50,
+    topFlyoutCloseDelay: 180
+  };
 
-  const LAZY_ADS = true;
-  const SEARCH_DEBOUNCE_MS = 90;
-  const SEARCH_MAX_RESULTS = 50;
-  const TOP_FLYOUT_CLOSE_DELAY = 180;
-  const SCROLL_MAX_MS = 1500;
-
-  // =========================
+  // =========================================================
   // STATE
-  // =========================
+  // =========================================================
   let LIBRARY = { works: [] };
 
   let CURRENT_WORK = null;
-  let CURRENT_READER = null;
+  let CURRENT_ENTRY = null;
   let CURRENT_MANIFEST = null;
   let CURRENT_IMAGES = [];
-  let CURRENT_UI_PAGE = 1;
-
   let SEARCH_INDEX = [];
-  let searchWired = false;
-  let adObserver = null;
-  let topFlyoutsWired = false;
+  let SEARCH_WIRED = false;
+  let TOP_FLYOUTS_WIRED = false;
+  let AD_OBSERVER = null;
 
-  // =========================
+  // =========================================================
   // DOM HELPERS
-  // =========================
+  // =========================================================
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
   function escapeHtml(s) {
-    return String(s)
+    return String(s ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
@@ -53,6 +55,11 @@
     return String(s || "").trim().toLowerCase();
   }
 
+  function safeText(s, fallback = "") {
+    const out = String(s || "").trim();
+    return out || fallback;
+  }
+
   function titleCaseSlug(slug) {
     return String(slug || "")
       .replace(/[_-]+/g, " ")
@@ -60,57 +67,43 @@
       .trim();
   }
 
-  function prettyNodeLabel(label) {
-    return String(label || "").trim();
+  function currentHeroLine() {
+    const work = safeText(CURRENT_MANIFEST?.work_title || CURRENT_WORK?.label, "");
+    const id = safeText(CURRENT_MANIFEST?.id || CURRENT_ENTRY?.id, "");
+    return [work, id].filter(Boolean).join(" • ") || "Expand • Read • Scroll";
   }
 
-  function currentMetaLine() {
-    const parts = [];
-    if (CURRENT_MANIFEST?.title) parts.push(CURRENT_MANIFEST.title);
-    if (CURRENT_MANIFEST?.subtitle) parts.push(CURRENT_MANIFEST.subtitle);
-    return parts.join(" • ");
-  }
-
-  // =========================
+  // =========================================================
   // ROUTING
-  // =========================
-  function clampUiPage(p) {
-    const n = parseInt(p, 10);
-    if (!Number.isFinite(n) || n < 1) return 1;
-    return n;
-  }
-
+  // =========================================================
   function getRoute() {
     const url = new URL(window.location.href);
     return {
       work: url.searchParams.get("work") || "",
       reader: url.searchParams.get("reader") || "",
-      p: clampUiPage(url.searchParams.get("p") || "1"),
       hash: (url.hash || "").replace(/^#/, "")
     };
   }
 
-  function setRoute(work, reader, page = 1, hash = "") {
+  function setRoute(work, reader, hash = "") {
     const url = new URL(window.location.href);
     url.searchParams.set("work", work);
     url.searchParams.set("reader", reader);
-    url.searchParams.set("p", String(page));
     url.hash = hash ? `#${hash}` : "";
     history.pushState({}, "", url.toString());
   }
 
-  function replaceRoute(work, reader, page = 1, hash = "") {
+  function replaceRoute(work, reader, hash = "") {
     const url = new URL(window.location.href);
     url.searchParams.set("work", work);
     url.searchParams.set("reader", reader);
-    url.searchParams.set("p", String(page));
     url.hash = hash ? `#${hash}` : "";
     history.replaceState({}, "", url.toString());
   }
 
-  // =========================
+  // =========================================================
   // FETCH
-  // =========================
+  // =========================================================
   async function fetchJson(path) {
     const res = await fetch(path, { cache: "no-store" });
     if (!res.ok) {
@@ -120,27 +113,29 @@
   }
 
   async function loadLibrary() {
-    LIBRARY = await fetchJson(LIBRARY_FILE);
-    if (!Array.isArray(LIBRARY.works)) LIBRARY.works = [];
+    const data = await fetchJson(LIBRARY_FILE);
+    LIBRARY = {
+      works: Array.isArray(data?.works) ? data.works : []
+    };
   }
 
-  async function loadReaderManifest(readerUrl) {
+  async function loadManifest(readerUrl) {
     return fetchJson(readerUrl);
   }
 
-  // =========================
-  // LIBRARY TREE HELPERS
-  // =========================
-  function walkNodes(nodes, fn, parents = [], work = null) {
-    for (const node of (nodes || [])) {
-      fn(node, parents, work);
+  // =========================================================
+  // LIBRARY TREE
+  // =========================================================
+  function walkNodes(nodes, visitor, parents = [], work = null) {
+    for (const node of nodes || []) {
+      visitor(node, parents, work);
       if (Array.isArray(node.children) && node.children.length) {
-        walkNodes(node.children, fn, [...parents, node], work);
+        walkNodes(node.children, visitor, [...parents, node], work);
       }
     }
   }
 
-  function getAllReaders() {
+  function getAllReaderEntries() {
     const out = [];
 
     for (const work of LIBRARY.works) {
@@ -149,8 +144,9 @@
           out.push({
             work,
             node,
+            id: safeText(node.id || node.label, "Untitled"),
+            slug: safeText(node.slug, ""),
             reader: node.reader,
-            label: node.label || "Untitled",
             parents
           });
         }
@@ -160,76 +156,154 @@
     return out;
   }
 
-  function getAllGroups() {
-    const out = [];
-
-    for (const work of LIBRARY.works) {
-      walkNodes(work.children || [], (node, parents) => {
-        if (node.type === "group" && Array.isArray(node.children) && node.children.length) {
-          out.push({
-            work,
-            node,
-            label: node.label || "Group",
-            parents
-          });
-        }
-      }, [], work);
-    }
-
-    return out;
-  }
-
-  function getFirstKnownReader() {
-    const all = getAllReaders();
-    return all.length ? all[0] : null;
-  }
-
-  function getLastKnownReader() {
-    const all = getAllReaders();
-    return all.length ? all[all.length - 1] : null;
-  }
-
-  function resolveReader(workSlug, readerUrl) {
-    return getAllReaders().find(x =>
-      normalizeKey(x.work.slug) === normalizeKey(workSlug) &&
-      normalizeKey(x.reader) === normalizeKey(readerUrl)
+  function resolveReaderEntry(workSlug, readerUrl) {
+    return getAllReaderEntries().find(entry =>
+      normalizeKey(entry.work.slug) === normalizeKey(workSlug) &&
+      normalizeKey(entry.reader) === normalizeKey(readerUrl)
     ) || null;
   }
 
-  // =========================
-  // MANIFEST / IMAGE HELPERS
-  // =========================
+  function getFirstReaderEntry() {
+    const all = getAllReaderEntries();
+    return all[0] || null;
+  }
+
+  function getLastReaderEntry() {
+    const all = getAllReaderEntries();
+    return all[all.length - 1] || null;
+  }
+
+  function getReaderEntriesForWork(work) {
+    const out = [];
+    walkNodes(work?.children || [], (node) => {
+      if (node.type === "reader" && node.reader) {
+        out.push(node);
+      }
+    }, [], work);
+    return out;
+  }
+
+  function getTraversalWindow(nodes, currentIndex) {
+    if (nodes.length <= 6) return nodes.map((_, i) => i);
+
+    const set = new Set([
+      currentIndex - 2,
+      currentIndex - 1,
+      currentIndex,
+      currentIndex + 1,
+      currentIndex + 2
+    ]);
+
+    const nums = Array.from(set)
+      .filter(i => i >= 0 && i < nodes.length)
+      .sort((a, b) => a - b);
+
+    return nums;
+  }
+
+  // =========================================================
+  // SEARCH INDEX
+  // =========================================================
+  function buildSearchIndex() {
+    const out = [];
+
+    for (const work of LIBRARY.works) {
+      walkNodes(work.children || [], (node) => {
+        if (node.type === "reader" && node.reader) {
+          out.push({
+            type: "reader",
+            workSlug: work.slug,
+            workLabel: safeText(work.label || work.work_title, titleCaseSlug(work.slug)),
+            entryId: safeText(node.id || node.label, "Untitled"),
+            entrySlug: safeText(node.slug, ""),
+            reader: node.reader,
+            text: `${safeText(work.label || work.work_title, titleCaseSlug(work.slug))} ${safeText(node.id || node.label, "Untitled")} ${safeText(node.slug, "")}`.trim()
+          });
+        }
+      }, [], work);
+    }
+
+    SEARCH_INDEX = out;
+  }
+
+  function norm(s) {
+    return String(s || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function runSearch(query) {
+    const q = norm(query);
+    if (!q) return [];
+
+    const words = q.split(/\s+/).filter(Boolean);
+
+    const scored = SEARCH_INDEX.map(item => {
+      const hay = norm(item.text);
+      let score = 0;
+
+      if (hay.includes(q)) score += 100;
+      for (const word of words) {
+        if (hay.includes(word)) score += 15;
+      }
+
+      return { item, score };
+    })
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, DEFAULTS.searchMaxResults)
+      .map(x => x.item);
+
+    return scored;
+  }
+
+  // =========================================================
+  // MANIFEST / IMAGES
+  // =========================================================
   function normalizeBaseUrl(url) {
     return String(url || "").replace(/\/+$/, "");
   }
 
   function buildImageList(manifest) {
     if (Array.isArray(manifest.images) && manifest.images.length) {
-      return manifest.images;
+      return manifest.images.map((name, idx) => ({
+        index: idx,
+        anchor: `page-${idx + 1}`,
+        file: name
+      }));
     }
 
     if (Number.isFinite(manifest.pages) && manifest.pages > 0) {
       const ext = manifest.extension || "jpg";
       const padding = Number.isFinite(manifest.padding) ? manifest.padding : 2;
 
-      return Array.from({ length: manifest.pages }, (_, i) => {
-        const n = String(i + 1).padStart(padding, "0");
-        return `${n}.${ext}`;
-      });
+      return Array.from({ length: manifest.pages }, (_, idx) => ({
+        index: idx,
+        anchor: `page-${idx + 1}`,
+        file: `${String(idx + 1).padStart(padding, "0")}.${ext}`
+      }));
     }
 
     return [];
   }
 
-  function getImageAbsoluteUrl(base, imageName) {
-    return `${normalizeBaseUrl(base)}/${imageName}`;
+  function currentAdSettings() {
+    const ads = CURRENT_MANIFEST?.ads || {};
+    return {
+      betweenEvery: Number.isFinite(ads.between_every) ? ads.between_every : DEFAULTS.betweenEvery,
+      betweenSlots: Number.isFinite(ads.between_slots) ? ads.between_slots : DEFAULTS.betweenSlots,
+      finalBlock: Number.isFinite(ads.final_block) ? ads.final_block : DEFAULTS.finalBlock
+    };
   }
 
-  // =========================
+  // =========================================================
   // ADS
-  // =========================
+  // =========================================================
   function ensureIns(slot) {
-    if (slot.dataset.inited) return;
+    if (!slot || slot.dataset.inited) return;
     slot.dataset.inited = "1";
 
     const ins = document.createElement("ins");
@@ -242,17 +316,21 @@
     (window.AdProvider = window.AdProvider || []).push({ serve: {} });
   }
 
-  function initLazyAds() {
-    if (adObserver || !LAZY_ADS) return;
+  function observeSlots(root = document) {
+    if (!AD_OBSERVER) return;
+    $$(".exo-slot[data-zone]", root).forEach(slot => AD_OBSERVER.observe(slot));
+  }
 
-    adObserver = new IntersectionObserver((entries) => {
+  function initLazyAds() {
+    if (AD_OBSERVER) return;
+
+    AD_OBSERVER = new IntersectionObserver((entries) => {
       let didInit = false;
 
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
-        const slot = entry.target;
-        ensureIns(slot);
-        adObserver.unobserve(slot);
+        ensureIns(entry.target);
+        AD_OBSERVER.unobserve(entry.target);
         didInit = true;
       }
 
@@ -263,38 +341,41 @@
       threshold: 0.01
     });
 
-    $$(".exo-slot[data-zone]").forEach(slot => adObserver.observe(slot));
+    observeSlots(document);
   }
 
-  function observeNewSlots(root) {
-    if (!adObserver) return;
-    $$(".exo-slot[data-zone]", root).forEach(slot => adObserver.observe(slot));
-  }
+  function initRailAds() {
+    const ids = [
+      ["#topBannerSlot", AD_ZONES.topBanner],
+      ["#leftRailSlot1", AD_ZONES.leftRail],
+      ["#leftRailSlot2", AD_ZONES.leftRail],
+      ["#leftRailSlot3", AD_ZONES.leftRail],
+      ["#rightRailSlot1", AD_ZONES.rightRail],
+      ["#rightRailSlot2", AD_ZONES.rightRail],
+      ["#rightRailSlot3", AD_ZONES.rightRail]
+    ];
 
-  function initAllAdsNow() {
-    $$(".exo-slot[data-zone]").forEach(ensureIns);
-    serveAds();
+    for (const [selector, zone] of ids) {
+      const el = $(selector);
+      if (el) el.dataset.zone = zone;
+    }
   }
 
   function buildBetweenAd(count) {
     const wrap = document.createElement("div");
-    wrap.className = "between-ad";
-
-    const grid = document.createElement("div");
-    grid.className = "between-grid";
+    wrap.className = "between-grid";
 
     for (let i = 0; i < count; i++) {
       const slot = document.createElement("div");
-      slot.className = "exo-slot";
-      slot.dataset.zone = BETWEEN_ZONE;
-      grid.appendChild(slot);
+      slot.className = "slot exo-slot";
+      slot.dataset.zone = AD_ZONES.between;
+      wrap.appendChild(slot);
     }
 
-    wrap.appendChild(grid);
     return wrap;
   }
 
-  function buildEndAds() {
+  function buildFinalAdBlock(count) {
     const wrap = document.createElement("section");
     wrap.className = "end-ads";
     wrap.id = "endAds";
@@ -306,10 +387,10 @@
     const grid = document.createElement("div");
     grid.className = "end-ads-grid";
 
-    for (let i = 0; i < END_ADS; i++) {
+    for (let i = 0; i < count; i++) {
       const slot = document.createElement("div");
-      slot.className = "exo-slot";
-      slot.dataset.zone = END_ZONE;
+      slot.className = "slot exo-slot";
+      slot.dataset.zone = AD_ZONES.end;
       grid.appendChild(slot);
     }
 
@@ -318,195 +399,91 @@
     return wrap;
   }
 
-  // =========================
-  // PAGINATION
-  // =========================
-  function totalUiPages() {
-    return Math.max(1, Math.ceil(CURRENT_IMAGES.length / UI_PAGE_SIZE));
+  // =========================================================
+  // SCROLL
+  // =========================================================
+  function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
   }
 
-  function clampCurrentPage(p) {
-    const total = totalUiPages();
-    const n = parseInt(p, 10);
-    if (!Number.isFinite(n) || n < 1) return 1;
-    return Math.min(total, n);
-  }
+  function smoothScrollToY(targetY, maxMs = DEFAULTS.scrollMaxMs) {
+    const startY = window.scrollY || window.pageYOffset || 0;
+    const distance = targetY - startY;
 
-  function getUiPageRange(page) {
-    const startIdx = (page - 1) * UI_PAGE_SIZE;
-    const endIdx = Math.min(CURRENT_IMAGES.length - 1, startIdx + UI_PAGE_SIZE - 1);
-    return { startIdx, endIdx };
-  }
-
-  function getVisibleImages() {
-    const { startIdx, endIdx } = getUiPageRange(CURRENT_UI_PAGE);
-    if (endIdx < startIdx) return [];
-    return CURRENT_IMAGES.slice(startIdx, endIdx + 1);
-  }
-
-  function getUiPageForImageIndex(idx) {
-    return Math.floor(idx / UI_PAGE_SIZE) + 1;
-  }
-
-  function getUiPageForAnchor(anchor) {
-    const idx = CURRENT_IMAGES.findIndex(item => item.anchor === anchor);
-    return idx === -1 ? 1 : getUiPageForImageIndex(idx);
-  }
-
-  function getUiPageLabel(page) {
-    const { startIdx, endIdx } = getUiPageRange(page);
-    if (CURRENT_IMAGES.length === 0 || endIdx < startIdx) return `Page ${page}`;
-
-    const startNum = CURRENT_IMAGES[startIdx]?.page || startIdx + 1;
-    const endNum = CURRENT_IMAGES[endIdx]?.page || endIdx + 1;
-
-    return `Pg. ${startNum}–${endNum}`;
-  }
-
-  function buildPagerSequence(current, total) {
-    if (total <= 9) {
-      return Array.from({ length: total }, (_, i) => i + 1);
-    }
-
-    const set = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
-    const nums = Array.from(set)
-      .filter(n => n >= 1 && n <= total)
-      .sort((a, b) => a - b);
-
-    const out = [];
-    for (let i = 0; i < nums.length; i++) {
-      out.push(nums[i]);
-      if (i < nums.length - 1 && nums[i + 1] - nums[i] > 1) {
-        out.push("...");
-      }
-    }
-    return out;
-  }
-
-  function ensureDynamicPagerContainers() {
-    const main = $(".center");
-    const container = $("#container");
-    if (!main || !container) return;
-
-    let top = $("#dynamicTopPager");
-    let bottom = $("#dynamicBottomPager");
-
-    if (!top) {
-      top = document.createElement("div");
-      top.id = "dynamicTopPager";
-      top.className = "nav";
-      top.style.margin = "0 0 12px";
-      main.insertBefore(top, container);
-    }
-
-    if (!bottom) {
-      bottom = document.createElement("div");
-      bottom.id = "dynamicBottomPager";
-      bottom.className = "nav";
-      bottom.style.margin = "18px 0 0";
-      main.appendChild(bottom);
-    }
-  }
-
-  function renderPagerInto(el) {
-    if (!el) return;
-
-    const total = totalUiPages();
-    if (total <= 1) {
-      el.innerHTML = "";
-      el.style.display = "none";
+    if (Math.abs(distance) < 2) {
+      window.scrollTo(0, targetY);
       return;
     }
 
-    const seq = buildPagerSequence(CURRENT_UI_PAGE, total);
-    let html = "";
+    const base = 650;
+    const extra = Math.min(850, Math.abs(distance) * 0.25);
+    const duration = Math.min(maxMs, base + extra);
+    const start = performance.now();
 
-    html += `
-      <a
-        href="?work=${encodeURIComponent(CURRENT_WORK.slug)}&reader=${encodeURIComponent(CURRENT_READER.reader)}&p=${Math.max(1, CURRENT_UI_PAGE - 1)}"
-        data-work="${escapeHtml(CURRENT_WORK.slug)}"
-        data-reader="${escapeHtml(CURRENT_READER.reader)}"
-        data-page="${Math.max(1, CURRENT_UI_PAGE - 1)}"
-      >
-        ‹ Prev
-      </a>
-    `;
-
-    for (const part of seq) {
-      if (part === "...") {
-        html += `<span class="pager-ellipsis">…</span>`;
-      } else {
-        const activeClass = part === CURRENT_UI_PAGE ? " active" : "";
-        html += `
-          <a
-            href="?work=${encodeURIComponent(CURRENT_WORK.slug)}&reader=${encodeURIComponent(CURRENT_READER.reader)}&p=${part}"
-            class="${activeClass.trim()}"
-            data-work="${escapeHtml(CURRENT_WORK.slug)}"
-            data-reader="${escapeHtml(CURRENT_READER.reader)}"
-            data-page="${part}"
-          >
-            ${escapeHtml(getUiPageLabel(part))}
-          </a>
-        `;
-      }
+    function step(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const e = easeOutCubic(t);
+      window.scrollTo(0, Math.round(startY + distance * e));
+      if (t < 1) requestAnimationFrame(step);
     }
 
-    html += `
-      <a
-        href="?work=${encodeURIComponent(CURRENT_WORK.slug)}&reader=${encodeURIComponent(CURRENT_READER.reader)}&p=${Math.min(total, CURRENT_UI_PAGE + 1)}"
-        data-work="${escapeHtml(CURRENT_WORK.slug)}"
-        data-reader="${escapeHtml(CURRENT_READER.reader)}"
-        data-page="${Math.min(total, CURRENT_UI_PAGE + 1)}"
-      >
-        Next ›
-      </a>
-    `;
-
-    el.innerHTML = html;
-    el.style.display = "flex";
+    requestAnimationFrame(step);
   }
 
-  function renderDynamicPagers() {
-    ensureDynamicPagerContainers();
-    renderPagerInto($("#dynamicTopPager"));
-    renderPagerInto($("#dynamicBottomPager"));
+  function scrollToEl(el, { offset = 10, smooth = true } = {}) {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const y = Math.max(0, rect.top + (window.scrollY || 0) - offset);
+    if (smooth) smoothScrollToY(y);
+    else window.scrollTo(0, y);
   }
 
-  // =========================
-  // MENU RENDERING
-  // =========================
+  function scrollToTopSmooth() {
+    smoothScrollToY(0);
+  }
+
+  function scrollToBottomSmooth() {
+    const target = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    smoothScrollToY(target);
+  }
+
+  function scrollToSearchSmooth() {
+    const searchSection = $("#searchSection");
+    if (searchSection) scrollToEl(searchSection, { offset: 12, smooth: true });
+  }
+
+  // =========================================================
+  // RENDER: TOP NAV
+  // =========================================================
   function renderTopFlyoutNodes(nodes, workSlug, depth = 0) {
     let html = "";
 
-    for (const node of (nodes || [])) {
-      const label = prettyNodeLabel(node.label || "Untitled");
-
+    for (const node of nodes || []) {
       if (node.type === "reader" && node.reader) {
         const active =
           normalizeKey(workSlug) === normalizeKey(CURRENT_WORK?.slug) &&
-          normalizeKey(node.reader) === normalizeKey(CURRENT_READER?.reader)
+          normalizeKey(node.reader) === normalizeKey(CURRENT_ENTRY?.reader)
             ? " active"
             : "";
 
         html += `
           <a
-            href="?work=${encodeURIComponent(workSlug)}&reader=${encodeURIComponent(node.reader)}&p=1"
+            href="?work=${encodeURIComponent(workSlug)}&reader=${encodeURIComponent(node.reader)}"
             class="topworks-link${active}"
             data-work="${escapeHtml(workSlug)}"
             data-reader="${escapeHtml(node.reader)}"
-            data-page="1"
-            style="margin-left:${depth * 12}px"
+            style="margin-left:${depth * 10}px"
           >
-            ${escapeHtml(label)}
+            ${escapeHtml(safeText(node.id || node.label, "Untitled"))}
           </a>
         `;
       } else if (node.type === "group" && Array.isArray(node.children) && node.children.length) {
         html += `
           <div
             class="topworks-link"
-            style="margin-left:${depth * 12}px; font-weight:700; cursor:default; background:rgba(255,255,255,.08)"
+            style="margin-left:${depth * 10}px; cursor:default; background:rgba(255,255,255,.08); font-weight:700;"
           >
-            ${escapeHtml(label)}
+            ${escapeHtml(safeText(node.id || node.label, "Group"))}
           </div>
         `;
         html += renderTopFlyoutNodes(node.children, workSlug, depth + 1);
@@ -523,16 +500,15 @@
     let html = "";
 
     for (const work of LIBRARY.works) {
-      const isActive = normalizeKey(work.slug) === normalizeKey(CURRENT_WORK?.slug);
-      const activeClass = isActive ? " active" : "";
+      const workLabel = safeText(work.label || work.work_title, titleCaseSlug(work.slug));
+      const active = normalizeKey(work.slug) === normalizeKey(CURRENT_WORK?.slug) ? " active" : "";
 
       html += `
-        <div class="topworks-item${activeClass}">
+        <div class="topworks-item${active}">
           <button class="topworks-trigger" type="button">
-            <span>${escapeHtml(work.label || titleCaseSlug(work.slug))}</span>
+            <span>${escapeHtml(workLabel)}</span>
             <span class="topworks-caret"></span>
           </button>
-
           <div class="topworks-flyout">
             <div class="topworks-links">
               ${renderTopFlyoutNodes(work.children || [], work.slug, 0)}
@@ -572,52 +548,52 @@
         if (closeTimer) clearTimeout(closeTimer);
         closeTimer = setTimeout(() => {
           item.classList.remove("open");
-        }, TOP_FLYOUT_CLOSE_DELAY);
+        }, DEFAULTS.topFlyoutCloseDelay);
       });
     });
 
-    if (!topFlyoutsWired) {
+    if (!TOP_FLYOUTS_WIRED) {
       document.addEventListener("click", (e) => {
         if (!e.target.closest(".topworks-item")) {
           $$(".topworks-item.open").forEach(el => el.classList.remove("open"));
         }
       });
-      topFlyoutsWired = true;
+      TOP_FLYOUTS_WIRED = true;
     }
   }
 
+  // =========================================================
+  // RENDER: LEFT LIBRARY
+  // =========================================================
   function renderLibraryNodes(nodes, workSlug, depth = 0) {
     let html = "";
 
-    for (const node of (nodes || [])) {
-      const label = prettyNodeLabel(node.label || "Untitled");
-
+    for (const node of nodes || []) {
       if (node.type === "reader" && node.reader) {
         const active =
           normalizeKey(workSlug) === normalizeKey(CURRENT_WORK?.slug) &&
-          normalizeKey(node.reader) === normalizeKey(CURRENT_READER?.reader)
+          normalizeKey(node.reader) === normalizeKey(CURRENT_ENTRY?.reader)
             ? " active"
             : "";
 
         html += `
           <a
-            href="?work=${encodeURIComponent(workSlug)}&reader=${encodeURIComponent(node.reader)}&p=1"
+            href="?work=${encodeURIComponent(workSlug)}&reader=${encodeURIComponent(node.reader)}"
             class="library-flyout-link${active}"
             data-work="${escapeHtml(workSlug)}"
             data-reader="${escapeHtml(node.reader)}"
-            data-page="1"
             style="margin-left:${depth * 10}px"
           >
-            ${escapeHtml(label)}
+            ${escapeHtml(safeText(node.id || node.label, "Untitled"))}
           </a>
         `;
       } else if (node.type === "group" && Array.isArray(node.children) && node.children.length) {
         html += `
           <div
             class="library-flyout-link"
-            style="margin-left:${depth * 10}px; font-weight:700; cursor:default; background:rgba(255,255,255,.08)"
+            style="margin-left:${depth * 10}px; cursor:default; background:rgba(255,255,255,.08); font-weight:700;"
           >
-            ${escapeHtml(label)}
+            ${escapeHtml(safeText(node.id || node.label, "Group"))}
           </div>
         `;
         html += renderLibraryNodes(node.children, workSlug, depth + 1);
@@ -632,33 +608,36 @@
     if (!root) return;
 
     const works = [...LIBRARY.works].sort((a, b) =>
-      String(a.label || a.slug).localeCompare(String(b.label || b.slug))
+      safeText(a.label || a.work_title, a.slug).localeCompare(
+        safeText(b.label || b.work_title, b.slug)
+      )
     );
 
     const grouped = new Map();
 
     for (const work of works) {
-      const letter = String(work.label || work.slug).charAt(0).toUpperCase();
+      const label = safeText(work.label || work.work_title, titleCaseSlug(work.slug));
+      const letter = label.charAt(0).toUpperCase();
+
       if (!grouped.has(letter)) grouped.set(letter, []);
       grouped.get(letter).push(work);
     }
 
     let html = "";
 
-    for (const [letter, items] of grouped) {
+    for (const [letter, bucket] of grouped) {
       html += `<div class="library-letter">${escapeHtml(letter)}</div>`;
 
-      for (const work of items) {
-        const itemOpen =
-          normalizeKey(work.slug) === normalizeKey(CURRENT_WORK?.slug) ? " open" : "";
+      for (const work of bucket) {
+        const label = safeText(work.label || work.work_title, titleCaseSlug(work.slug));
+        const open = normalizeKey(work.slug) === normalizeKey(CURRENT_WORK?.slug) ? " open" : "";
 
         html += `
-          <div class="library-item${itemOpen}">
+          <div class="library-item${open}">
             <button class="library-trigger" type="button">
-              <span>${escapeHtml(work.label || titleCaseSlug(work.slug))}</span>
+              <span>${escapeHtml(label)}</span>
               <span class="library-arrow">▶</span>
             </button>
-
             <div class="library-flyout">
               <div class="library-flyout-links">
                 ${renderLibraryNodes(work.children || [], work.slug, 0)}
@@ -672,158 +651,49 @@
     root.innerHTML = html;
   }
 
-  // =========================
-  // SEARCH
-  // =========================
-  function buildSearchIndex() {
-    const readers = getAllReaders();
-    const groups = getAllGroups();
-
-    const readerEntries = readers.map(x => ({
-      type: "reader",
-      label: x.label,
-      workLabel: x.work.label || x.work.slug,
-      workSlug: x.work.slug,
-      reader: x.reader,
-      text: `${x.work.label || x.work.slug} ${x.label}`
-    }));
-
-    const groupEntries = groups.map(x => ({
-      type: "group",
-      label: x.label,
-      workLabel: x.work.label || x.work.slug,
-      workSlug: x.work.slug,
-      children: x.node.children || [],
-      text: `${x.work.label || x.work.slug} ${x.label}`
-    }));
-
-    SEARCH_INDEX = [...readerEntries, ...groupEntries];
-  }
-
-  function norm(s) {
-    return String(s || "")
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-  }
-
-  function runSearch(query) {
-    const q = norm(query);
-    if (!q) return [];
-
-    return SEARCH_INDEX
-      .map(item => {
-        const hay = norm(item.text);
-        let score = 0;
-        if (hay.includes(q)) score += 100;
-
-        const words = q.split(/\s+/).filter(Boolean);
-        for (const w of words) {
-          if (hay.includes(w)) score += 15;
-        }
-
-        return { item, score };
-      })
-      .filter(x => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, SEARCH_MAX_RESULTS)
-      .map(x => x.item);
-  }
-
-  function renderSearchGroupChildren(groupId, children, workSlug) {
-    return `
-      <div class="nav" id="search-group-${groupId}" style="display:none; width:100%; margin-top:8px;">
-        ${children.map(child => {
-          if (child.type === "reader" && child.reader) {
-            return `
-              <a
-                href="?work=${encodeURIComponent(workSlug)}&reader=${encodeURIComponent(child.reader)}&p=1"
-                data-work="${escapeHtml(workSlug)}"
-                data-reader="${escapeHtml(child.reader)}"
-                data-page="1"
-              >
-                ${escapeHtml(child.label || "Reader")}
-              </a>
-            `;
-          }
-          return `
-            <span class="smallbtn" style="cursor:default;">
-              ${escapeHtml(child.label || "Group")}
-            </span>
-          `;
-        }).join("")}
-      </div>
-    `;
-  }
-
-  function updateSearchResults(query) {
+  // =========================================================
+  // RENDER: SEARCH
+  // =========================================================
+  function renderSearchResults(query) {
     const meta = $("#meta");
     const nav = $("#nav");
 
+    if (!nav) return;
+
     if (!query.trim()) {
-      if (nav) {
-        nav.innerHTML = "";
-        nav.style.display = "none";
-      }
-      if (meta) meta.textContent = `Pages: ${CURRENT_IMAGES.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
+      nav.innerHTML = "";
+      nav.style.display = "none";
+      if (meta) meta.textContent = `${CURRENT_IMAGES.length} pages`;
       return;
     }
 
     const hits = runSearch(query);
 
-    if (meta) {
-      meta.textContent = hits.length ? `Matches: ${hits.length}` : "No matches.";
-    }
+    if (meta) meta.textContent = hits.length ? `Matches: ${hits.length}` : "No matches.";
 
-    if (!nav) return;
+    nav.innerHTML = hits.map(hit => `
+      <a
+        href="?work=${encodeURIComponent(hit.workSlug)}&reader=${encodeURIComponent(hit.reader)}"
+        data-work="${escapeHtml(hit.workSlug)}"
+        data-reader="${escapeHtml(hit.reader)}"
+      >
+        ${escapeHtml(`${hit.workLabel} • ${hit.entryId}`)}
+      </a>
+    `).join("");
 
-    let html = "";
-
-    hits.forEach((hit, i) => {
-      if (hit.type === "reader") {
-        html += `
-          <a
-            href="?work=${encodeURIComponent(hit.workSlug)}&reader=${encodeURIComponent(hit.reader)}&p=1"
-            data-work="${escapeHtml(hit.workSlug)}"
-            data-reader="${escapeHtml(hit.reader)}"
-            data-page="1"
-          >
-            ${escapeHtml(hit.workLabel)} • ${escapeHtml(hit.label)}
-          </a>
-        `;
-      } else if (hit.type === "group") {
-        const groupId = `g${i}`;
-        html += `
-          <button
-            class="smallbtn"
-            type="button"
-            data-search-group="${groupId}"
-          >
-            ${escapeHtml(hit.workLabel)} • ${escapeHtml(hit.label)} ▾
-          </button>
-        `;
-        html += renderSearchGroupChildren(groupId, hit.children || [], hit.workSlug);
-      }
-    });
-
-    nav.innerHTML = html;
     nav.style.display = hits.length ? "flex" : "none";
   }
 
   function wireSearchUI() {
-    if (searchWired) return;
-    searchWired = true;
+    if (SEARCH_WIRED) return;
+    SEARCH_WIRED = true;
 
     const input = $("#q");
-    const meta = $("#meta");
-    const nav = $("#nav");
     const clearBtn = $("#clear");
+    const nav = $("#nav");
+    const meta = $("#meta");
 
-    if (meta) {
-      meta.textContent = `Pages: ${CURRENT_IMAGES.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
-    }
+    if (meta) meta.textContent = `${CURRENT_IMAGES.length} pages`;
 
     if (clearBtn) {
       clearBtn.addEventListener("click", () => {
@@ -832,238 +702,218 @@
           nav.innerHTML = "";
           nav.style.display = "none";
         }
-        if (meta) {
-          meta.textContent = `Pages: ${CURRENT_IMAGES.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
-        }
+        if (meta) meta.textContent = `${CURRENT_IMAGES.length} pages`;
       });
     }
 
     if (!input) return;
 
-    let tmr = null;
+    let timer = null;
 
     input.addEventListener("input", () => {
-      clearTimeout(tmr);
-      tmr = setTimeout(() => {
-        updateSearchResults(input.value || "");
-      }, SEARCH_DEBOUNCE_MS);
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        renderSearchResults(input.value || "");
+      }, DEFAULTS.searchDebounceMs);
     });
+  }
 
-    if (nav) {
-      nav.addEventListener("click", (e) => {
-        const groupBtn = e.target.closest("[data-search-group]");
-        if (groupBtn) {
-          e.preventDefault();
-          const id = groupBtn.dataset.searchGroup;
-          const block = document.getElementById(`search-group-${id}`);
-          if (block) {
-            block.style.display = block.style.display === "none" ? "flex" : "none";
-          }
-          return;
-        }
-      });
+  // =========================================================
+  // RENDER: TRAVERSAL
+  // =========================================================
+  function renderTraversalBar() {
+    const readers = getReaderEntriesForWork(CURRENT_WORK || {});
+    if (!readers.length || !CURRENT_ENTRY) return "";
+
+    const currentIndex = readers.findIndex(node =>
+      normalizeKey(node.reader) === normalizeKey(CURRENT_ENTRY.reader)
+    );
+
+    if (currentIndex === -1) return "";
+
+    const prev = readers[currentIndex - 1] || null;
+    const next = readers[currentIndex + 1] || null;
+    const windowIndexes = getTraversalWindow(readers, currentIndex);
+
+    let html = `<div class="entry-traversal">`;
+
+    if (prev) {
+      html += `
+        <a
+          href="?work=${encodeURIComponent(CURRENT_WORK.slug)}&reader=${encodeURIComponent(prev.reader)}"
+          class="entry-traversal-link"
+          data-work="${escapeHtml(CURRENT_WORK.slug)}"
+          data-reader="${escapeHtml(prev.reader)}"
+        >
+          ‹ Previous
+        </a>
+      `;
+    } else {
+      html += `<span class="entry-traversal-ghost">‹ Previous</span>`;
     }
-  }
 
-  // =========================
-  // READER RENDERING
-  // =========================
-  function imageBlock(src, alt, anchor) {
-    const wrap = document.createElement("div");
-    wrap.className = "image-wrap";
-    wrap.id = anchor;
+    for (const idx of windowIndexes) {
+      const node = readers[idx];
+      const label = safeText(node.id || node.label, `Entry ${idx + 1}`);
 
-    const img = document.createElement("img");
-    img.src = src;
-    img.alt = alt;
-    img.loading = "lazy";
-    img.decoding = "async";
-
-    wrap.appendChild(img);
-    return wrap;
-  }
-
-  function renderVisibleItems(container) {
-    const visibleItems = getVisibleImages();
-    const frag = document.createDocumentFragment();
-
-    const note = document.createElement("div");
-    note.className = "note";
-    note.textContent = "If anything below ever fails in the wider archive, keep scrolling. I planned for that. The working path is always here.";
-    frag.appendChild(note);
-
-    visibleItems.forEach((item, localIdx) => {
-      frag.appendChild(
-        imageBlock(
-          item.src,
-          item.alt,
-          item.anchor
-        )
-      );
-
-      const globalPos = ((CURRENT_UI_PAGE - 1) * UI_PAGE_SIZE) + localIdx + 1;
-      const isGap =
-        globalPos >= 2 &&
-        (globalPos % BETWEEN_EVERY === 0) &&
-        (localIdx + 1) < visibleItems.length;
-
-      if (isGap) {
-        frag.appendChild(buildBetweenAd(BETWEEN_SLOTS));
+      if (idx === currentIndex) {
+        html += `<span class="entry-traversal-current">${escapeHtml(label)}</span>`;
+      } else {
+        html += `
+          <a
+            href="?work=${encodeURIComponent(CURRENT_WORK.slug)}&reader=${encodeURIComponent(node.reader)}"
+            class="entry-traversal-link"
+            data-work="${escapeHtml(CURRENT_WORK.slug)}"
+            data-reader="${escapeHtml(node.reader)}"
+          >
+            ${escapeHtml(label)}
+          </a>
+        `;
       }
-    });
+    }
 
-    container.appendChild(frag);
-    observeNewSlots(container);
+    if (next) {
+      html += `
+        <a
+          href="?work=${encodeURIComponent(CURRENT_WORK.slug)}&reader=${encodeURIComponent(next.reader)}"
+          class="entry-traversal-link"
+          data-work="${escapeHtml(CURRENT_WORK.slug)}"
+          data-reader="${escapeHtml(next.reader)}"
+        >
+          Next ›
+        </a>
+      `;
+    } else {
+      html += `<span class="entry-traversal-ghost">Next ›</span>`;
+    }
+
+    html += `</div>`;
+    return html;
   }
 
-  function render() {
+  // =========================================================
+  // RENDER: READER
+  // =========================================================
+  function renderReader() {
     const container = $("#container");
     if (!container) return;
 
     container.replaceChildren();
-    renderDynamicPagers();
-    renderVisibleItems(container);
 
-    if (!$("#endAds")) {
-      container.appendChild(buildEndAds());
+    const settings = currentAdSettings();
+    const traversalHtml = renderTraversalBar();
+
+    if (traversalHtml) {
+      const topWrap = document.createElement("div");
+      topWrap.innerHTML = traversalHtml;
+      container.appendChild(topWrap.firstElementChild);
     }
 
-    const meta = $("#meta");
-    if (meta) {
-      meta.textContent = `Pages: ${CURRENT_IMAGES.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = "If anything isn’t working, keep scrolling. I planned for that. The working path is always here.";
+    container.appendChild(note);
+
+    CURRENT_IMAGES.forEach((item, idx) => {
+      const wrap = document.createElement("div");
+      wrap.className = "image-wrap";
+      wrap.id = item.anchor;
+
+      const img = document.createElement("img");
+      img.src = item.src;
+      img.alt = item.alt;
+      img.loading = "lazy";
+      img.decoding = "async";
+
+      wrap.appendChild(img);
+      container.appendChild(wrap);
+
+      const pageNumber = idx + 1;
+      const shouldInsertBetween =
+        settings.betweenEvery > 0 &&
+        pageNumber >= 2 &&
+        pageNumber % settings.betweenEvery === 0 &&
+        pageNumber < CURRENT_IMAGES.length;
+
+      if (shouldInsertBetween) {
+        container.appendChild(buildBetweenAd(settings.betweenSlots));
+      }
+    });
+
+    if (traversalHtml) {
+      const bottomWrap = document.createElement("div");
+      bottomWrap.innerHTML = traversalHtml;
+      container.appendChild(bottomWrap.firstElementChild);
     }
 
-    if (LAZY_ADS) {
-      setTimeout(serveAds, 80);
+    if (settings.finalBlock > 0) {
+      container.appendChild(buildFinalAdBlock(settings.finalBlock));
     }
+
+    observeSlots(container);
+    setTimeout(serveAds, 80);
   }
 
-  // =========================
-  // LOAD CURRENT READER
-  // =========================
-  async function switchReader(workSlug, readerUrl, page = 1) {
-    const resolved = resolveReader(workSlug, readerUrl);
+  // =========================================================
+  // LOAD CURRENT ENTRY
+  // =========================================================
+  async function switchReader(workSlug, readerUrl) {
+    const resolved = resolveReaderEntry(workSlug, readerUrl);
     if (!resolved) {
-      throw new Error(`Unknown reader for work=${workSlug}`);
+      throw new Error(`Unknown reader: work=${workSlug} reader=${readerUrl}`);
     }
 
-    const manifest = await loadReaderManifest(readerUrl);
-    const imageNames = buildImageList(manifest);
+    const manifest = await loadManifest(readerUrl);
     const base = normalizeBaseUrl(manifest.base_url);
+    const images = buildImageList(manifest);
 
-    if (!base) {
-      throw new Error(`Manifest missing base_url: ${readerUrl}`);
-    }
-
-    if (!imageNames.length) {
-      throw new Error(`Manifest has no images: ${readerUrl}`);
-    }
+    if (!base) throw new Error(`Manifest missing base_url: ${readerUrl}`);
+    if (!images.length) throw new Error(`Manifest has no images: ${readerUrl}`);
 
     CURRENT_WORK = resolved.work;
-    CURRENT_READER = resolved;
+    CURRENT_ENTRY = {
+      id: safeText(resolved.node.id || resolved.node.label, "Untitled"),
+      slug: safeText(resolved.node.slug, ""),
+      reader: resolved.reader
+    };
     CURRENT_MANIFEST = manifest;
-    CURRENT_IMAGES = imageNames.map((name, idx) => ({
-      page: idx + 1,
-      name,
-      anchor: `page-${idx + 1}`,
-      src: getImageAbsoluteUrl(base, name),
-      alt: `${manifest.title || resolved.work.label || resolved.work.slug} page ${idx + 1}`
+    CURRENT_IMAGES = images.map((img, idx) => ({
+      index: idx,
+      anchor: img.anchor,
+      src: `${base}/${img.file}`,
+      alt: `${safeText(manifest.work_title, safeText(CURRENT_WORK.label, "Work"))} ${safeText(manifest.id, "Page")} ${idx + 1}`
     }));
 
-    CURRENT_UI_PAGE = clampCurrentPage(page);
+    const heroTitle = $("#workTitle");
+    if (heroTitle) {
+      heroTitle.textContent = currentHeroLine();
+    }
 
     const currentWorkTitle = $("#currentWorkTitle");
     if (currentWorkTitle) {
-      currentWorkTitle.textContent = currentMetaLine() || "Expand • Read • Scroll";
+      currentWorkTitle.textContent = currentHeroLine();
     }
 
     renderWorksNav();
     renderLibraryNav();
-    render();
-    openHashTarget();
-  }
+    renderReader();
 
-  // =========================
-  // SCROLL
-  // =========================
-  function easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
-  }
+    const meta = $("#meta");
+    if (meta) meta.textContent = `${CURRENT_IMAGES.length} pages`;
 
-  function smoothScrollToY(targetY, maxMs = SCROLL_MAX_MS) {
-    const startY = window.scrollY || window.pageYOffset || 0;
-    const distance = targetY - startY;
-
-    if (Math.abs(distance) < 2) {
-      window.scrollTo(0, targetY);
-      return;
+    const nav = $("#nav");
+    if (nav) {
+      nav.innerHTML = "";
+      nav.style.display = "none";
     }
 
-    const base = 650;
-    const extra = Math.min(850, Math.abs(distance) * 0.25);
-    const duration = Math.min(maxMs, base + extra);
-    const start = performance.now();
-
-    function step(now) {
-      const t = Math.min(1, (now - start) / duration);
-      const e = easeOutCubic(t);
-      window.scrollTo(0, Math.round(startY + distance * e));
-      if (t < 1) requestAnimationFrame(step);
-    }
-
-    requestAnimationFrame(step);
+    const q = $("#q");
+    if (q) q.value = "";
   }
 
-  function scrollToEl(el, { offset = 10, smooth = true } = {}) {
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const y = Math.max(0, rect.top + (window.scrollY || 0) - offset);
-    if (smooth) smoothScrollToY(y, SCROLL_MAX_MS);
-    else window.scrollTo(0, y);
-  }
-
-  function openFirstVisibleImage({ scroll = false } = {}) {
-    const first = getVisibleImages()[0];
-    if (!first) return;
-
-    const el = document.getElementById(first.anchor);
-    if (el && scroll) {
-      scrollToEl(el, { offset: 12, smooth: true });
-    }
-  }
-
-  async function openLastWork() {
-    const last = getLastKnownReader();
-    if (!last) return;
-
-    setRoute(last.work.slug, last.reader, 1, "");
-    await switchReader(last.work.slug, last.reader, 1);
-  }
-
-  function openHashTarget() {
-    const hash = (window.location.hash || "").replace(/^#/, "");
-    if (!hash) return;
-
-    const idx = CURRENT_IMAGES.findIndex(item => item.anchor === hash);
-    if (idx === -1) return;
-
-    const targetPage = getUiPageForAnchor(hash);
-    if (targetPage !== CURRENT_UI_PAGE) {
-      CURRENT_UI_PAGE = targetPage;
-      replaceRoute(CURRENT_WORK.slug, CURRENT_READER.reader, CURRENT_UI_PAGE, hash);
-      render();
-    }
-
-    requestAnimationFrame(() => {
-      const el = document.getElementById(hash);
-      if (!el) return;
-      scrollToEl(el, { offset: 12, smooth: true });
-    });
-  }
-
-  // =========================
+  // =========================================================
   // EVENTS
-  // =========================
+  // =========================================================
   document.addEventListener("click", (e) => {
     const topTrigger = e.target.closest(".topworks-trigger");
     if (topTrigger) {
@@ -1104,42 +954,44 @@
 
       const work = readerLink.dataset.work;
       const reader = readerLink.dataset.reader;
-      const page = clampUiPage(readerLink.dataset.page || "1");
-
       if (!work || !reader) return;
 
-      const sameWork = normalizeKey(work) === normalizeKey(CURRENT_WORK?.slug);
-      const sameReader = normalizeKey(reader) === normalizeKey(CURRENT_READER?.reader);
-      const samePage = page === CURRENT_UI_PAGE;
+      const same =
+        normalizeKey(work) === normalizeKey(CURRENT_WORK?.slug) &&
+        normalizeKey(reader) === normalizeKey(CURRENT_ENTRY?.reader);
 
-      if (sameWork && sameReader && samePage) return;
+      if (same) return;
 
-      setRoute(work, reader, page, "");
-      switchReader(work, reader, page).catch(err => {
+      setRoute(work, reader, "");
+      switchReader(work, reader).catch(err => {
         console.error(err);
-        const meta = $("#meta");
-        if (meta) meta.textContent = "Failed to load selected reader.";
+        const heroTitle = $("#workTitle");
+        if (heroTitle) heroTitle.textContent = "Failed to load work";
       });
       return;
     }
 
-    const firstBtn = e.target.closest("#openFirstTop");
-    if (firstBtn) {
+    const floatingFirstBtn = e.target.closest("#floatingFirstBtn");
+    if (floatingFirstBtn) {
       e.preventDefault();
       e.stopPropagation();
-      openFirstVisibleImage({ scroll: true });
+      scrollToTopSmooth();
       return;
     }
 
-    const lastWorkBtn = e.target.closest("#openLastWorkTop");
-    if (lastWorkBtn) {
+    const floatingLastBtn = e.target.closest("#floatingLastBtn");
+    if (floatingLastBtn) {
       e.preventDefault();
       e.stopPropagation();
-      openLastWork().catch(err => {
-        console.error(err);
-        const meta = $("#meta");
-        if (meta) meta.textContent = "Failed to load last work.";
-      });
+      scrollToBottomSmooth();
+      return;
+    }
+
+    const floatingSearchBtn = e.target.closest("#floatingSearchBtn");
+    if (floatingSearchBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      scrollToSearchSmooth();
       return;
     }
 
@@ -1152,71 +1004,57 @@
     }
   });
 
-  // =========================
+  // =========================================================
   // BOOT
-  // =========================
+  // =========================================================
   async function boot() {
+    initRailAds();
     await loadLibrary();
     buildSearchIndex();
-
-    let { work, reader, p } = getRoute();
-    let resolved = resolveReader(work, reader);
-
-    if (!resolved) {
-      const first = getFirstKnownReader();
-      if (!first) {
-        throw new Error("No readable entries found in library.json");
-      }
-      resolved = first;
-      p = 1;
-      replaceRoute(resolved.work.slug, resolved.reader, p, "");
-    } else if (
-      resolved.work.slug !== work ||
-      resolved.reader !== reader
-    ) {
-      replaceRoute(resolved.work.slug, resolved.reader, p, "");
-    }
-
-    await switchReader(resolved.work.slug, resolved.reader, p);
     wireSearchUI();
 
-    if (LAZY_ADS) {
-      initLazyAds();
-      setTimeout(serveAds, 900);
-    } else {
-      initAllAdsNow();
+    let { work, reader } = getRoute();
+    let resolved = resolveReaderEntry(work, reader);
+
+    if (!resolved) {
+      resolved = getFirstReaderEntry();
+      if (!resolved) {
+        throw new Error("No readable entries found in library.json");
+      }
+      replaceRoute(resolved.work.slug, resolved.reader, "");
     }
+
+    await switchReader(resolved.work.slug, resolved.reader);
+
+    initLazyAds();
+    setTimeout(serveAds, 900);
   }
 
   window.addEventListener("popstate", () => {
-    const { work, reader, p } = getRoute();
-    const resolved = resolveReader(work, reader);
+    const { work, reader } = getRoute();
+    const resolved = resolveReaderEntry(work, reader);
     if (!resolved) return;
 
-    switchReader(resolved.work.slug, resolved.reader, p).catch(err => {
+    switchReader(resolved.work.slug, resolved.reader).catch(err => {
       console.error(err);
-      const meta = $("#meta");
-      if (meta) meta.textContent = "Failed to load archive.";
+      const heroTitle = $("#workTitle");
+      if (heroTitle) heroTitle.textContent = "Failed to load archive";
     });
-  });
-
-  window.addEventListener("hashchange", () => {
-    openHashTarget();
   });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       boot().catch(err => {
         console.error(err);
-        const meta = $("#meta");
-        if (meta) meta.textContent = "Failed to load archive.";
+        const heroTitle = $("#workTitle");
+        if (heroTitle) heroTitle.textContent = "Failed to load archive";
       });
     }, { once: true });
   } else {
     boot().catch(err => {
       console.error(err);
-      const meta = $("#meta");
-      if (meta) meta.textContent = "Failed to load archive.";
+      const heroTitle = $("#workTitle");
+      if (heroTitle) heroTitle.textContent = "Failed to load archive";
     });
   }
 })();
