@@ -1,7 +1,4 @@
 (() => {
-  // =========================================================
-  // CONFIG
-  // =========================================================
   const LIBRARY_FILE = "library.json";
 
   const AD_ZONES = {
@@ -22,11 +19,7 @@
     topFlyoutCloseDelay: 180
   };
 
-  // =========================================================
-  // STATE
-  // =========================================================
   let LIBRARY = { works: [] };
-
   let CURRENT_WORK = null;
   let CURRENT_ENTRY = null;
   let CURRENT_MANIFEST = null;
@@ -36,9 +29,6 @@
   let TOP_FLYOUTS_WIRED = false;
   let AD_OBSERVER = null;
 
-  // =========================================================
-  // DOM HELPERS
-  // =========================================================
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
@@ -68,14 +58,11 @@
   }
 
   function currentHeroLine() {
-    const work = safeText(CURRENT_MANIFEST?.work_title || CURRENT_WORK?.label, "");
-    const id = safeText(CURRENT_MANIFEST?.id || CURRENT_ENTRY?.id, "");
+    const work = safeText(CURRENT_WORK?.label, "");
+    const id = safeText(CURRENT_ENTRY?.id, "");
     return [work, id].filter(Boolean).join(" • ") || "Expand • Read • Scroll";
   }
 
-  // =========================================================
-  // ROUTING
-  // =========================================================
   function getRoute() {
     const url = new URL(window.location.href);
     return {
@@ -101,9 +88,6 @@
     history.replaceState({}, "", url.toString());
   }
 
-  // =========================================================
-  // FETCH
-  // =========================================================
   async function fetchJson(path) {
     const res = await fetch(path, { cache: "no-store" });
     if (!res.ok) {
@@ -123,9 +107,6 @@
     return fetchJson(readerUrl);
   }
 
-  // =========================================================
-  // LIBRARY TREE
-  // =========================================================
   function walkNodes(nodes, visitor, parents = [], work = null) {
     for (const node of nodes || []) {
       visitor(node, parents, work);
@@ -137,7 +118,6 @@
 
   function getAllReaderEntries() {
     const out = [];
-
     for (const work of LIBRARY.works) {
       walkNodes(work.children || [], (node, parents) => {
         if (node.type === "reader" && node.reader) {
@@ -152,7 +132,6 @@
         }
       }, [], work);
     }
-
     return out;
   }
 
@@ -176,16 +155,15 @@
   function getReaderEntriesForWork(work) {
     const out = [];
     walkNodes(work?.children || [], (node) => {
-      if (node.type === "reader" && node.reader) {
-        out.push(node);
-      }
+      if (node.type === "reader" && node.reader) out.push(node);
     }, [], work);
     return out;
   }
 
   function getTraversalWindow(nodes, currentIndex) {
-    if (nodes.length <= 6) return nodes.map((_, i) => i);
-
+    if (nodes.length <= 6) {
+      return nodes.map((_, i) => i);
+    }
     const set = new Set([
       currentIndex - 2,
       currentIndex - 1,
@@ -193,25 +171,17 @@
       currentIndex + 1,
       currentIndex + 2
     ]);
-
-    const nums = Array.from(set)
+    return Array.from(set)
       .filter(i => i >= 0 && i < nodes.length)
       .sort((a, b) => a - b);
-
-    return nums;
   }
 
-  // =========================================================
-  // SEARCH INDEX
-  // =========================================================
   function buildSearchIndex() {
     const out = [];
-
     for (const work of LIBRARY.works) {
       walkNodes(work.children || [], (node) => {
         if (node.type === "reader" && node.reader) {
           out.push({
-            type: "reader",
             workSlug: work.slug,
             workLabel: safeText(work.label || work.work_title, titleCaseSlug(work.slug)),
             entryId: safeText(node.id || node.label, "Untitled"),
@@ -222,7 +192,6 @@
         }
       }, [], work);
     }
-
     SEARCH_INDEX = out;
   }
 
@@ -238,52 +207,41 @@
   function runSearch(query) {
     const q = norm(query);
     if (!q) return [];
-
     const words = q.split(/\s+/).filter(Boolean);
 
-    const scored = SEARCH_INDEX.map(item => {
+    return SEARCH_INDEX.map(item => {
       const hay = norm(item.text);
       let score = 0;
-
       if (hay.includes(q)) score += 100;
       for (const word of words) {
         if (hay.includes(word)) score += 15;
       }
-
       return { item, score };
     })
       .filter(x => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, DEFAULTS.searchMaxResults)
       .map(x => x.item);
-
-    return scored;
   }
 
-  // =========================================================
-  // MANIFEST / IMAGES
-  // =========================================================
   function normalizeBaseUrl(url) {
     return String(url || "").replace(/\/+$/, "");
   }
 
   function buildImageList(manifest) {
     if (Array.isArray(manifest.images) && manifest.images.length) {
-      return manifest.images.map((name, idx) => ({
-        index: idx,
-        anchor: `page-${idx + 1}`,
-        file: name
+      return manifest.images.map((file, idx) => ({
+        file,
+        anchor: `page-${idx + 1}`
       }));
     }
 
     if (Number.isFinite(manifest.pages) && manifest.pages > 0) {
       const ext = manifest.extension || "jpg";
       const padding = Number.isFinite(manifest.padding) ? manifest.padding : 2;
-
       return Array.from({ length: manifest.pages }, (_, idx) => ({
-        index: idx,
-        anchor: `page-${idx + 1}`,
-        file: `${String(idx + 1).padStart(padding, "0")}.${ext}`
+        file: `${String(idx + 1).padStart(padding, "0")}.${ext}`,
+        anchor: `page-${idx + 1}`
       }));
     }
 
@@ -299,13 +257,9 @@
     };
   }
 
-  // =========================================================
-  // ADS
-  // =========================================================
   function ensureIns(slot) {
     if (!slot || slot.dataset.inited) return;
     slot.dataset.inited = "1";
-
     const ins = document.createElement("ins");
     ins.className = "eas6a97888e2";
     ins.setAttribute("data-zoneid", slot.dataset.zone);
@@ -326,14 +280,12 @@
 
     AD_OBSERVER = new IntersectionObserver((entries) => {
       let didInit = false;
-
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
         ensureIns(entry.target);
         AD_OBSERVER.unobserve(entry.target);
         didInit = true;
       }
-
       if (didInit) setTimeout(serveAds, 30);
     }, {
       root: null,
@@ -344,41 +296,27 @@
     observeSlots(document);
   }
 
-  function initRailAds() {
-    const ids = [
-      ["#topBannerSlot", AD_ZONES.topBanner],
-      ["#leftRailSlot1", AD_ZONES.leftRail],
-      ["#leftRailSlot2", AD_ZONES.leftRail],
-      ["#leftRailSlot3", AD_ZONES.leftRail],
-      ["#rightRailSlot1", AD_ZONES.rightRail],
-      ["#rightRailSlot2", AD_ZONES.rightRail],
-      ["#rightRailSlot3", AD_ZONES.rightRail]
-    ];
-
-    for (const [selector, zone] of ids) {
-      const el = $(selector);
-      if (el) el.dataset.zone = zone;
-    }
-  }
-
   function buildBetweenAd(count) {
     const wrap = document.createElement("div");
-    wrap.className = "between-grid";
+    wrap.className = "between-ad";
+
+    const grid = document.createElement("div");
+    grid.className = "between-grid";
 
     for (let i = 0; i < count; i++) {
       const slot = document.createElement("div");
-      slot.className = "slot exo-slot";
+      slot.className = "exo-slot";
       slot.dataset.zone = AD_ZONES.between;
-      wrap.appendChild(slot);
+      grid.appendChild(slot);
     }
 
+    wrap.appendChild(grid);
     return wrap;
   }
 
   function buildFinalAdBlock(count) {
     const wrap = document.createElement("section");
     wrap.className = "end-ads";
-    wrap.id = "endAds";
 
     const title = document.createElement("p");
     title.className = "end-ads-title";
@@ -389,7 +327,7 @@
 
     for (let i = 0; i < count; i++) {
       const slot = document.createElement("div");
-      slot.className = "slot exo-slot";
+      slot.className = "exo-slot";
       slot.dataset.zone = AD_ZONES.end;
       grid.appendChild(slot);
     }
@@ -399,9 +337,6 @@
     return wrap;
   }
 
-  // =========================================================
-  // SCROLL
-  // =========================================================
   function easeOutCubic(t) {
     return 1 - Math.pow(1 - t, 3);
   }
@@ -434,7 +369,7 @@
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const y = Math.max(0, rect.top + (window.scrollY || 0) - offset);
-    if (smooth) smoothScrollToY(y);
+    if (smooth) smoothScrollToY(y, DEFAULTS.scrollMaxMs);
     else window.scrollTo(0, y);
   }
 
@@ -452,12 +387,8 @@
     if (searchSection) scrollToEl(searchSection, { offset: 12, smooth: true });
   }
 
-  // =========================================================
-  // RENDER: TOP NAV
-  // =========================================================
   function renderTopFlyoutNodes(nodes, workSlug, depth = 0) {
     let html = "";
-
     for (const node of nodes || []) {
       if (node.type === "reader" && node.reader) {
         const active =
@@ -489,7 +420,6 @@
         html += renderTopFlyoutNodes(node.children, workSlug, depth + 1);
       }
     }
-
     return html;
   }
 
@@ -498,7 +428,6 @@
     if (!nav) return;
 
     let html = "";
-
     for (const work of LIBRARY.works) {
       const workLabel = safeText(work.label || work.work_title, titleCaseSlug(work.slug));
       const active = normalizeKey(work.slug) === normalizeKey(CURRENT_WORK?.slug) ? " active" : "";
@@ -562,102 +491,9 @@
     }
   }
 
-  // =========================================================
-  // RENDER: LEFT LIBRARY
-  // =========================================================
-  function renderLibraryNodes(nodes, workSlug, depth = 0) {
-    let html = "";
-
-    for (const node of nodes || []) {
-      if (node.type === "reader" && node.reader) {
-        const active =
-          normalizeKey(workSlug) === normalizeKey(CURRENT_WORK?.slug) &&
-          normalizeKey(node.reader) === normalizeKey(CURRENT_ENTRY?.reader)
-            ? " active"
-            : "";
-
-        html += `
-          <a
-            href="?work=${encodeURIComponent(workSlug)}&reader=${encodeURIComponent(node.reader)}"
-            class="library-flyout-link${active}"
-            data-work="${escapeHtml(workSlug)}"
-            data-reader="${escapeHtml(node.reader)}"
-            style="margin-left:${depth * 10}px"
-          >
-            ${escapeHtml(safeText(node.id || node.label, "Untitled"))}
-          </a>
-        `;
-      } else if (node.type === "group" && Array.isArray(node.children) && node.children.length) {
-        html += `
-          <div
-            class="library-flyout-link"
-            style="margin-left:${depth * 10}px; cursor:default; background:rgba(255,255,255,.08); font-weight:700;"
-          >
-            ${escapeHtml(safeText(node.id || node.label, "Group"))}
-          </div>
-        `;
-        html += renderLibraryNodes(node.children, workSlug, depth + 1);
-      }
-    }
-
-    return html;
-  }
-
-  function renderLibraryNav() {
-    const root = $("#libraryNav");
-    if (!root) return;
-
-    const works = [...LIBRARY.works].sort((a, b) =>
-      safeText(a.label || a.work_title, a.slug).localeCompare(
-        safeText(b.label || b.work_title, b.slug)
-      )
-    );
-
-    const grouped = new Map();
-
-    for (const work of works) {
-      const label = safeText(work.label || work.work_title, titleCaseSlug(work.slug));
-      const letter = label.charAt(0).toUpperCase();
-
-      if (!grouped.has(letter)) grouped.set(letter, []);
-      grouped.get(letter).push(work);
-    }
-
-    let html = "";
-
-    for (const [letter, bucket] of grouped) {
-      html += `<div class="library-letter">${escapeHtml(letter)}</div>`;
-
-      for (const work of bucket) {
-        const label = safeText(work.label || work.work_title, titleCaseSlug(work.slug));
-        const open = normalizeKey(work.slug) === normalizeKey(CURRENT_WORK?.slug) ? " open" : "";
-
-        html += `
-          <div class="library-item${open}">
-            <button class="library-trigger" type="button">
-              <span>${escapeHtml(label)}</span>
-              <span class="library-arrow">▶</span>
-            </button>
-            <div class="library-flyout">
-              <div class="library-flyout-links">
-                ${renderLibraryNodes(work.children || [], work.slug, 0)}
-              </div>
-            </div>
-          </div>
-        `;
-      }
-    }
-
-    root.innerHTML = html;
-  }
-
-  // =========================================================
-  // RENDER: SEARCH
-  // =========================================================
   function renderSearchResults(query) {
     const meta = $("#meta");
     const nav = $("#nav");
-
     if (!nav) return;
 
     if (!query.trim()) {
@@ -668,7 +504,6 @@
     }
 
     const hits = runSearch(query);
-
     if (meta) meta.textContent = hits.length ? `Matches: ${hits.length}` : "No matches.";
 
     nav.innerHTML = hits.map(hit => `
@@ -716,11 +551,18 @@
         renderSearchResults(input.value || "");
       }, DEFAULTS.searchDebounceMs);
     });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const hits = runSearch(input.value || "");
+      if (hits[0]) {
+        e.preventDefault();
+        setRoute(hits[0].workSlug, hits[0].reader, "");
+        switchReader(hits[0].workSlug, hits[0].reader).catch(console.error);
+      }
+    });
   }
 
-  // =========================================================
-  // RENDER: TRAVERSAL
-  // =========================================================
   function renderTraversalBar() {
     const readers = getReaderEntriesForWork(CURRENT_WORK || {});
     if (!readers.length || !CURRENT_ENTRY) return "";
@@ -791,9 +633,6 @@
     return html;
   }
 
-  // =========================================================
-  // RENDER: READER
-  // =========================================================
   function renderReader() {
     const container = $("#container");
     if (!container) return;
@@ -854,9 +693,6 @@
     setTimeout(serveAds, 80);
   }
 
-  // =========================================================
-  // LOAD CURRENT ENTRY
-  // =========================================================
   async function switchReader(workSlug, readerUrl) {
     const resolved = resolveReaderEntry(workSlug, readerUrl);
     if (!resolved) {
@@ -878,28 +714,21 @@
     };
     CURRENT_MANIFEST = manifest;
     CURRENT_IMAGES = images.map((img, idx) => ({
-      index: idx,
       anchor: img.anchor,
       src: `${base}/${img.file}`,
-      alt: `${safeText(manifest.work_title, safeText(CURRENT_WORK.label, "Work"))} ${safeText(manifest.id, "Page")} ${idx + 1}`
+      alt: `${safeText(manifest.work_title, safeText(CURRENT_WORK.label, "Work"))} ${safeText(CURRENT_ENTRY.id, "Page")} ${idx + 1}`
     }));
 
-    const heroTitle = $("#workTitle");
-    if (heroTitle) {
-      heroTitle.textContent = currentHeroLine();
-    }
+    const heroLine = currentHeroLine();
 
     const currentWorkTitle = $("#currentWorkTitle");
-    if (currentWorkTitle) {
-      currentWorkTitle.textContent = currentHeroLine();
-    }
-
-    renderWorksNav();
-    renderLibraryNav();
-    renderReader();
+    if (currentWorkTitle) currentWorkTitle.textContent = heroLine;
 
     const meta = $("#meta");
     if (meta) meta.textContent = `${CURRENT_IMAGES.length} pages`;
+
+    const q = $("#q");
+    if (q) q.value = "";
 
     const nav = $("#nav");
     if (nav) {
@@ -907,13 +736,17 @@
       nav.style.display = "none";
     }
 
-    const q = $("#q");
-    if (q) q.value = "";
+    renderWorksNav();
+    renderReader();
   }
 
-  // =========================================================
-  // EVENTS
-  // =========================================================
+  async function openLastWork() {
+    const last = getLastReaderEntry();
+    if (!last) return;
+    setRoute(last.work.slug, last.reader, "");
+    await switchReader(last.work.slug, last.reader);
+  }
+
   document.addEventListener("click", (e) => {
     const topTrigger = e.target.closest(".topworks-trigger");
     if (topTrigger) {
@@ -924,22 +757,6 @@
       if (!item) return;
 
       $$(".topworks-item.open").forEach(el => {
-        if (el !== item) el.classList.remove("open");
-      });
-
-      item.classList.toggle("open");
-      return;
-    }
-
-    const libraryTrigger = e.target.closest(".library-trigger");
-    if (libraryTrigger) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const item = libraryTrigger.closest(".library-item");
-      if (!item) return;
-
-      $$(".library-item.open").forEach(el => {
         if (el !== item) el.classList.remove("open");
       });
 
@@ -965,8 +782,8 @@
       setRoute(work, reader, "");
       switchReader(work, reader).catch(err => {
         console.error(err);
-        const heroTitle = $("#workTitle");
-        if (heroTitle) heroTitle.textContent = "Failed to load work";
+        const meta = $("#meta");
+        if (meta) meta.textContent = "Failed to load selected work.";
       });
       return;
     }
@@ -995,8 +812,24 @@
       return;
     }
 
-    if (!e.target.closest(".library-item")) {
-      $$(".library-item.open").forEach(el => el.classList.remove("open"));
+    const firstBtn = e.target.closest("#openFirstTop");
+    if (firstBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      scrollToTopSmooth();
+      return;
+    }
+
+    const lastWorkBtn = e.target.closest("#openLastWorkTop");
+    if (lastWorkBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openLastWork().catch(err => {
+        console.error(err);
+        const meta = $("#meta");
+        if (meta) meta.textContent = "Failed to load last work.";
+      });
+      return;
     }
 
     if (!e.target.closest(".topworks-item")) {
@@ -1004,11 +837,7 @@
     }
   });
 
-  // =========================================================
-  // BOOT
-  // =========================================================
   async function boot() {
-    initRailAds();
     await loadLibrary();
     buildSearchIndex();
     wireSearchUI();
@@ -1037,8 +866,8 @@
 
     switchReader(resolved.work.slug, resolved.reader).catch(err => {
       console.error(err);
-      const heroTitle = $("#workTitle");
-      if (heroTitle) heroTitle.textContent = "Failed to load archive";
+      const meta = $("#meta");
+      if (meta) meta.textContent = "Failed to load archive.";
     });
   });
 
@@ -1046,15 +875,15 @@
     document.addEventListener("DOMContentLoaded", () => {
       boot().catch(err => {
         console.error(err);
-        const heroTitle = $("#workTitle");
-        if (heroTitle) heroTitle.textContent = "Failed to load archive";
+        const meta = $("#meta");
+        if (meta) meta.textContent = "Failed to load archive.";
       });
     }, { once: true });
   } else {
     boot().catch(err => {
       console.error(err);
-      const heroTitle = $("#workTitle");
-      if (heroTitle) heroTitle.textContent = "Failed to load archive";
+      const meta = $("#meta");
+      if (meta) meta.textContent = "Failed to load archive.";
     });
   }
 })();
