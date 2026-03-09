@@ -1,13 +1,35 @@
 {
   "works": [
     {
+      "id": 101,
       "slug": "barato",
-      "label": "Barato",
-      "children": [
+      "display": "Barato",
+      "top_pill": true,
+      "entries": [
         {
-          "label": "Book 1",
-          "type": "reader",
-          "reader": "https://pub-cd01009a7c6c464aa0b093e33aa5ae51.r2.dev/works/barato/book_1/book.json"
+          "slug": "book_1",
+          "type": "book",
+          "subtitle": "Book 1"
+        },
+        {
+          "slug": "extra",
+          "type": "special",
+          "subtitle": "Extra"
+        },
+        {
+          "slug": "interview",
+          "type": "special",
+          "subtitle": "Interview"
+        },
+        {
+          "slug": "book_2",
+          "type": "book",
+          "subtitle": "Book 2"
+        },
+        {
+          "slug": "chapter_300",
+          "type": "chapter",
+          "subtitle": "Chapter 300"
         }
       ]
     }
