@@ -1,86 +1,592 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Wallace Archive Reader</title>
+  <title>Wallace Archive</title>
 
-  <link rel="stylesheet" href="reader.css" />
+  <style>
+    :root{
+      --bg:#0b0d12;
+      --bg2:#121621;
+      --panel:rgba(255,255,255,.05);
+      --panel-2:rgba(255,255,255,.08);
+      --line:rgba(255,255,255,.12);
+      --line-2:rgba(255,255,255,.18);
+      --text:#f4f6fb;
+      --muted:rgba(244,246,251,.7);
+      --accent:#c9a86a;
+      --accent-2:#e6c98f;
+      --shadow:0 18px 60px rgba(0,0,0,.45);
+      --radius:18px;
+      --radius-sm:12px;
+    }
 
-  <script async src="https://a.magsrv.com/ad-provider.js"></script>
-  <script>
-    window.AdProvider = window.AdProvider || [];
-  </script>
+    *{ box-sizing:border-box; }
+    html,body{ margin:0; padding:0; }
+    body{
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(201,168,106,.12), transparent 28%),
+        linear-gradient(180deg, #0b0d12 0%, #0f1320 100%);
+      color:var(--text);
+      min-height:100vh;
+    }
+
+    a{ color:inherit; }
+
+    .hero{
+      padding:28px 18px 12px;
+      max-width:1600px;
+      margin:0 auto;
+    }
+
+    .hero-title{
+      margin:0;
+      font-size:clamp(1.8rem, 2.8vw, 3rem);
+      line-height:1;
+      letter-spacing:.02em;
+    }
+
+    .hero-sub{
+      margin:10px 0 0;
+      color:var(--muted);
+      font-size:clamp(1rem, 1.6vw, 1.3rem);
+    }
+
+    .works-strip-wrap{
+      margin-top:18px;
+    }
+
+    .works-strip-label,
+    .search-label,
+    .library-title{
+      font-size:.78rem;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:var(--muted);
+      margin:0 0 10px;
+    }
+
+    .works-strip{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .topworks-item{
+      position:relative;
+    }
+
+    .topworks-trigger,
+    .smallbtn,
+    .pill{
+      appearance:none;
+      border:1px solid var(--line);
+      background:var(--panel);
+      color:var(--text);
+      border-radius:999px;
+      padding:10px 14px;
+      cursor:pointer;
+      text-decoration:none;
+      transition:transform .12s ease, background .12s ease, border-color .12s ease;
+    }
+
+    .topworks-trigger:hover,
+    .smallbtn:hover,
+    .pill:hover,
+    .topworks-item.active .topworks-trigger{
+      background:var(--panel-2);
+      border-color:var(--line-2);
+      transform:translateY(-1px);
+    }
+
+    .topworks-caret{
+      display:inline-block;
+      margin-left:8px;
+      opacity:.8;
+    }
+
+    .topworks-caret::before{ content:"▾"; }
+
+    .topworks-flyout{
+      display:none;
+      position:absolute;
+      top:calc(100% + 8px);
+      left:0;
+      min-width:320px;
+      max-width:420px;
+      padding:10px;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:rgba(18,22,33,.96);
+      backdrop-filter:blur(12px);
+      box-shadow:var(--shadow);
+      z-index:50;
+    }
+
+    .topworks-item:hover .topworks-flyout,
+    .topworks-item.open .topworks-flyout{
+      display:block;
+    }
+
+    .topworks-links{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .topworks-link{
+      display:block;
+      text-decoration:none;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.04);
+      font-size:.95rem;
+      line-height:1.2;
+    }
+
+    .topworks-link:hover,
+    .topworks-link.active{
+      background:rgba(255,255,255,.1);
+      border-color:rgba(255,255,255,.16);
+    }
+
+    .toolbar{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:16px;
+    }
+
+    .meta{
+      margin-top:14px;
+      color:var(--muted);
+      font-size:.95rem;
+    }
+
+    .search-zone{
+      margin-top:18px;
+    }
+
+    .search{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px;
+      border-radius:18px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.04);
+    }
+
+    .search input{
+      flex:1;
+      min-width:0;
+      border:0;
+      outline:none;
+      background:transparent;
+      color:var(--text);
+      font-size:1rem;
+    }
+
+    .search input::placeholder{
+      color:rgba(255,255,255,.45);
+    }
+
+    .kbd{
+      border:1px solid var(--line);
+      border-bottom-width:2px;
+      border-radius:10px;
+      padding:5px 8px;
+      color:var(--muted);
+      font-size:.8rem;
+    }
+
+    .nav{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin:0 0 12px;
+    }
+
+    .nav a{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:9px 12px;
+      text-decoration:none;
+      border-radius:999px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.04);
+      font-size:.9rem;
+    }
+
+    .nav a:hover{
+      background:rgba(255,255,255,.09);
+    }
+
+    .nav-id{
+      color:var(--muted);
+      font-size:.82rem;
+    }
+
+    .layout{
+      max-width:1600px;
+      margin:0 auto;
+      padding:12px 18px 24px;
+      display:grid;
+      grid-template-columns:300px minmax(0,1fr) 220px;
+      gap:18px;
+      align-items:start;
+    }
+
+    .rail{
+      position:sticky;
+      top:12px;
+      align-self:start;
+    }
+
+    .library-shell,
+    .rail-stack{
+      border-radius:var(--radius);
+      border:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      box-shadow:var(--shadow);
+      backdrop-filter:blur(8px);
+    }
+
+    .library-shell{
+      padding:14px;
+      max-height:calc(100vh - 24px);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .library-nav{
+      flex:1;
+      overflow:auto;
+      padding-right:4px;
+    }
+
+    .library-letter{
+      margin:14px 0 8px;
+      font-size:1.1rem;
+      color:var(--muted);
+    }
+
+    .library-item{
+      margin-bottom:10px;
+    }
+
+    .library-trigger{
+      width:100%;
+      appearance:none;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.05);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      text-align:left;
+    }
+
+    .library-trigger:hover,
+    .library-item.open .library-trigger{
+      background:rgba(255,255,255,.1);
+      border-color:var(--line-2);
+    }
+
+    .library-arrow{
+      opacity:.85;
+      font-size:.85rem;
+    }
+
+    .library-flyout{
+      display:none;
+      padding:10px 0 0 8px;
+    }
+
+    .library-item.open .library-flyout,
+    .library-item:hover .library-flyout{
+      display:block;
+    }
+
+    .library-flyout-links{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .library-flyout-link{
+      display:block;
+      text-decoration:none;
+      color:var(--text);
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.05);
+      font-size:.92rem;
+      line-height:1.2;
+    }
+
+    .library-flyout-link:hover,
+    .library-flyout-link.active{
+      background:rgba(255,255,255,.1);
+      border-color:rgba(255,255,255,.16);
+    }
+
+    .center{
+      min-width:0;
+    }
+
+    #dynamicTopPager,
+    #dynamicBottomPager{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin:0 0 14px;
+      padding:12px;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.04);
+    }
+
+    #dynamicBottomPager{
+      margin:16px 0 0;
+    }
+
+    #dynamicTopPager a,
+    #dynamicBottomPager a,
+    #dynamicTopPager .pager-ellipsis,
+    #dynamicBottomPager .pager-ellipsis{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:38px;
+      padding:8px 12px;
+      border-radius:999px;
+      text-decoration:none;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.04);
+      color:var(--text);
+      font-size:.92rem;
+    }
+
+    #dynamicTopPager a.active,
+    #dynamicBottomPager a.active{
+      background:rgba(201,168,106,.18);
+      border-color:rgba(201,168,106,.35);
+    }
+
+    #container{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+
+    details.card{
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      overflow:hidden;
+      box-shadow:var(--shadow);
+    }
+
+    summary{
+      list-style:none;
+      cursor:pointer;
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto auto;
+      gap:14px;
+      align-items:center;
+      padding:14px;
+    }
+
+    summary::-webkit-details-marker{ display:none; }
+
+    .leftstack{
+      min-width:0;
+    }
+
+    .doc{
+      font-size:1.02rem;
+      line-height:1.2;
+      word-break:break-word;
+    }
+
+    .id{
+      margin-top:6px;
+      color:var(--muted);
+      font-size:.88rem;
+    }
+
+    .actions,
+    .action-open{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      align-items:flex-end;
+    }
+
+    .expand-hint,
+    .open-note{
+      color:var(--muted);
+      font-size:.78rem;
+    }
+
+    .content{
+      padding:0 14px 14px;
+    }
+
+    .image-content img{
+      width:100%;
+      height:auto;
+      display:block;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.08);
+      background:#0a0a0a;
+    }
+
+    .between-ad,
+    .end-ads{
+      border:1px dashed rgba(255,255,255,.14);
+      border-radius:16px;
+      background:rgba(255,255,255,.03);
+      padding:14px;
+    }
+
+    .between-grid,
+    .end-ads-grid{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:10px;
+    }
+
+    .ad-box{
+      min-height:84px;
+      border-radius:12px;
+      border:1px dashed rgba(255,255,255,.14);
+      background:rgba(255,255,255,.04);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--muted);
+      font-size:.82rem;
+      text-align:center;
+      padding:10px;
+    }
+
+    .rail-stack{
+      padding:14px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .exo-slot{
+      min-height:180px;
+      border-radius:14px;
+      border:1px dashed rgba(255,255,255,.14);
+      background:rgba(255,255,255,.04);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--muted);
+      text-align:center;
+      padding:14px;
+    }
+
+    @media (max-width: 1100px){
+      .layout{ grid-template-columns:1fr; }
+      .rail{
+        position:relative;
+        top:auto;
+      }
+      .library-shell{
+        max-height:none;
+      }
+      .topworks-flyout{
+        position:relative;
+        top:10px;
+        left:0;
+        min-width:100%;
+        max-width:100%;
+      }
+    }
+
+    @media (max-width: 700px){
+      summary{
+        grid-template-columns:1fr;
+        align-items:start;
+      }
+      .actions,
+      .action-open{
+        align-items:flex-start;
+      }
+      .search{
+        flex-wrap:wrap;
+      }
+      .kbd{ display:none; }
+    }
+  </style>
 </head>
 <body>
 
   <header class="hero">
-    <h1 id="workTitle">Loading…</h1>
-    <p>At most they simply have to scroll. And that’s easy.</p>
+    <h1 class="hero-title">Wallace Archive</h1>
+    <p class="hero-sub" id="currentWorkTitle">Expand • Read • Scroll</p>
+
+    <section class="works-strip-wrap" aria-label="Top works navigation">
+      <p class="works-strip-label">Top Works</p>
+      <nav class="works-strip" id="worksNav"></nav>
+    </section>
+
+    <div class="toolbar">
+      <button class="smallbtn" id="openFirstTop" type="button">First Page</button>
+      <button class="smallbtn" id="openLastWorkTop" type="button">Last Entry</button>
+    </div>
+
+    <div class="meta" id="meta">Loading…</div>
+
+    <section class="search-zone" id="searchSection">
+      <div class="search-label">Search</div>
+      <nav class="nav" id="nav" style="display:none;"></nav>
+
+      <div class="search">
+        <input id="q" type="search" placeholder="Type… e.g. Barato Book 1 Page 12" autocomplete="off" />
+        <span class="kbd">Enter</span>
+        <button class="smallbtn" id="clear" type="button">Clear</button>
+      </div>
+    </section>
   </header>
 
-  <div class="top-banner-shell">
-    <div class="top-banner-bar">
-      <div class="top-banner-inner exo-slot" id="topBannerSlot"></div>
-    </div>
-  </div>
-
   <div class="layout">
-    <aside class="rail rail-left">
-      <div class="rail-stack">
-        <div class="slot exo-slot" id="leftRailSlot1"></div>
-        <div class="slot exo-slot" id="leftRailSlot2"></div>
-        <div class="slot exo-slot" id="leftRailSlot3"></div>
+    <aside class="rail library-rail" aria-label="Other works archive">
+      <div class="library-shell">
+        <div class="library-title">Other Works</div>
+        <div class="library-nav" id="libraryNav"></div>
       </div>
     </aside>
 
-    <main class="reader" id="reader"></main>
+    <main class="center">
+      <div id="dynamicTopPager"></div>
+      <div id="container"></div>
+      <div id="dynamicBottomPager"></div>
+    </main>
 
-    <aside class="rail rail-right">
-      <div class="rail-stack">
-        <div class="slot exo-slot" id="rightRailSlot1"></div>
-        <div class="slot exo-slot" id="rightRailSlot2"></div>
-        <div class="slot exo-slot" id="rightRailSlot3"></div>
+    <aside class="rail" aria-label="Right ads">
+      <div class="rail-stack" id="rightRail">
+        <div class="exo-slot">Right rail ad slot</div>
       </div>
     </aside>
   </div>
 
-  <script type="application/javascript">
-  (function() {
-    var adConfig = {
-      ads_host: "a.pemsrv.com",
-      syndication_host: "s.pemsrv.com",
-      idzone: 5865422,
-      popup_fallback: false,
-      popup_force: false,
-      chrome_enabled: true,
-      new_tab: false,
-      frequency_period: 720,
-      frequency_count: 1,
-      trigger_method: 3,
-      trigger_class: "",
-      trigger_delay: 0,
-      capping_enabled: true,
-      tcf_enabled: true,
-      only_inline: false
-    };
-
-    var s = document.createElement("script");
-    s.type = "application/javascript";
-    s.async = true;
-    s.src = "//" + adConfig.ads_host + "/popunder1000.js";
-    s.id = "popmagicldr";
-
-    for (var k in adConfig) {
-      if (!Object.prototype.hasOwnProperty.call(adConfig, k)) continue;
-      if (k === "ads_host" || k === "syndication_host") continue;
-      s.setAttribute("data-exo-" + k, adConfig[k]);
-    }
-
-    document.body.appendChild(s);
-  })();
-  </script>
-
-  <script src="reader.js"></script>
+  <script defer src="index.js"></script>
 </body>
 </html>
