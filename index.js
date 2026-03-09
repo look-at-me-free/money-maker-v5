@@ -5,8 +5,10 @@
   // CONFIG
   // =========================
   const LIBRARY_FILE = "library.json";
-  const WORKS_DIR = "works";
+  const R2_BASE_URL = "https://pub-cd01009a7c6c464aa0b093e33aa5ae51.r2.dev";
+  const WORKS_DIR = `${R2_BASE_URL}/works`;
   const ITEM_JSON_NAME = "item.json";
+
   const UI_PAGE_SIZE = 20;
   const SEARCH_DEBOUNCE_MS = 140;
   const OPEN_FIRST_ON_LOAD = true;
@@ -28,6 +30,8 @@
   let CURRENT_ITEM_JSON = null;
 
   let searchWired = false;
+  let topFlyoutsWired = false;
+  let popstateWired = false;
 
   // =========================
   // DOM HELPERS
@@ -53,7 +57,7 @@
       .replace(/[_-]+/g, " ")
       .replace(/\s+/g, " ")
       .trim()
-      .replace(/\b\w/g, ch => ch.toUpperCase());
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
   }
 
   async function fetchJson(url) {
@@ -79,22 +83,17 @@
     url.searchParams.set("dir", dir);
     url.searchParams.set("file", file);
     url.searchParams.set("p", String(p));
-    if (hash) {
-      url.hash = `#${hash}`;
-    } else {
-      url.hash = "";
-    }
+    url.hash = hash ? `#${hash}` : "";
 
     const payload = { dir, file, p, hash };
     if (replace) {
-      window.history.replaceState(payload, "", url);
+      history.replaceState(payload, "", url);
     } else {
-      window.history.pushState(payload, "", url);
+      history.pushState(payload, "", url);
     }
   }
 
   function currentMetaLine() {
-    if (!CURRENT_WORK_TITLE && !CURRENT_CHUNK_TITLE) return "";
     return [CURRENT_WORK_TITLE, CURRENT_CHUNK_TITLE].filter(Boolean).join(" • ");
   }
 
@@ -114,7 +113,7 @@
     const data = await fetchJson(LIBRARY_FILE);
     const works = Array.isArray(data.works) ? data.works : [];
 
-    ARCHIVE_WORKS = works.map(work => ({
+    ARCHIVE_WORKS = works.map((work) => ({
       id: work.id ?? null,
       slug: work.slug ?? "",
       display: work.display || work.dropdown_option_display || titleCaseSlug(work.slug),
@@ -122,7 +121,7 @@
       entries: Array.isArray(work.entries) ? work.entries : []
     }));
 
-    TOP_WORKS = ARCHIVE_WORKS.filter(work => work.top_pill);
+    TOP_WORKS = ARCHIVE_WORKS.filter((work) => work.top_pill);
   }
 
   function allKnownWorkPairs() {
@@ -130,18 +129,10 @@
 
     for (const work of ARCHIVE_WORKS) {
       const dir = work.slug;
-      const entries = Array.isArray(work.entries) ? work.entries : [];
-
-      for (const entry of entries) {
+      for (const entry of work.entries) {
         const file = entry?.slug;
         if (!dir || !file) continue;
-
-        pairs.push({
-          dir,
-          file,
-          work,
-          entry
-        });
+        pairs.push({ dir, file, work, entry });
       }
     }
 
@@ -150,12 +141,14 @@
 
   function resolveWorkPair(dir, file) {
     const key = `${normalizeKey(dir)}::${normalizeKey(file)}`;
-    return allKnownWorkPairs().find(x => `${normalizeKey(x.dir)}::${normalizeKey(x.file)}` === key) || null;
+    return allKnownWorkPairs().find(
+      (x) => `${normalizeKey(x.dir)}::${normalizeKey(x.file)}` === key
+    ) || null;
   }
 
   function getFirstKnownWork() {
     for (const work of ARCHIVE_WORKS) {
-      const first = Array.isArray(work.entries) ? work.entries[0] : null;
+      const first = work.entries?.[0];
       if (work.slug && first?.slug) {
         return { dir: work.slug, file: first.slug };
       }
@@ -165,21 +158,19 @@
 
   function getLastKnownWork() {
     const all = allKnownWorkPairs();
-    return all.length ? { dir: all[all.length - 1].dir, file: all[all.length - 1].file } : { dir: "", file: "" };
+    return all.length
+      ? { dir: all[all.length - 1].dir, file: all[all.length - 1].file }
+      : { dir: "", file: "" };
   }
 
   function entryDisplay(work, entry, itemData = null) {
     const workName = work?.display || titleCaseSlug(work?.slug || "");
-    const subtitle =
-      itemData?.subtitle ||
-      entry?.subtitle ||
-      titleCaseSlug(entry?.slug || "");
-
+    const subtitle = itemData?.subtitle || entry?.subtitle || titleCaseSlug(entry?.slug || "");
     return `${workName} · ${subtitle}`;
   }
 
   // =========================
-  // LOAD WORK
+  // LOAD ENTRY
   // =========================
   async function loadWork(dir, file) {
     const resolved = resolveWorkPair(dir, file) || { dir, file, work: null, entry: null };
@@ -189,13 +180,15 @@
     CURRENT_FILE = resolved.file;
     CURRENT_ITEM_JSON = data;
 
-    const parentDisplay =
+    CURRENT_WORK_TITLE =
       resolved.work?.display ||
       data.title ||
       titleCaseSlug(resolved.dir);
 
-    CURRENT_WORK_TITLE = parentDisplay;
-    CURRENT_CHUNK_TITLE = data.subtitle || titleCaseSlug(resolved.file);
+    CURRENT_CHUNK_TITLE =
+      data.subtitle ||
+      resolved.entry?.subtitle ||
+      titleCaseSlug(resolved.file);
 
     const totalPages = Number.isFinite(data.pages) ? data.pages : 0;
     const padding = Number.isFinite(data.padding) ? data.padding : 2;
@@ -262,7 +255,7 @@
   }
 
   function getUiPageForAnchor(anchor) {
-    const idx = ITEMS.findIndex(item => item.anchor === anchor);
+    const idx = ITEMS.findIndex((item) => item.anchor === anchor);
     return idx === -1 ? 1 : getUiPageForItemIndex(idx);
   }
 
@@ -285,7 +278,7 @@
 
     const set = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
     const nums = Array.from(set)
-      .filter(n => n >= 1 && n <= total)
+      .filter((n) => n >= 1 && n <= total)
       .sort((a, b) => a - b);
 
     const out = [];
@@ -309,8 +302,8 @@
     }
 
     const seq = buildPagerSequence(CURRENT_UI_PAGE, total);
-    let html = "";
 
+    let html = "";
     for (const token of seq) {
       if (token === "...") {
         html += `<span class="pager-ellipsis">…</span>`;
@@ -362,12 +355,8 @@
   function runSearch(query) {
     const q = String(query || "").trim().toLowerCase();
     if (!q) return [];
-
     if (!SEARCH_INDEX) buildSearchIndex();
-
-    return SEARCH_INDEX
-      .filter(x => x.haystack.includes(q))
-      .slice(0, 24);
+    return SEARCH_INDEX.filter((x) => x.haystack.includes(q)).slice(0, 24);
   }
 
   function updateSearchResults(query) {
@@ -382,7 +371,7 @@
     }
 
     if (nav) {
-      nav.innerHTML = hits.map(h => {
+      nav.innerHTML = hits.map((h) => {
         const item = ITEMS[h.i];
         return `<a href="#${escapeHtml(item.anchor)}" data-i="${h.i}">${escapeHtml(h.title)}<span class="nav-id">${escapeHtml(h.meta)}</span></a>`;
       }).join("");
@@ -425,16 +414,20 @@
           nav.innerHTML = "";
           nav.style.display = "none";
         }
-        if (meta) meta.textContent = `Pages: ${ITEMS.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
+        if (meta) {
+          meta.textContent = `Pages: ${ITEMS.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
+        }
       });
     }
 
     if (input) {
-      let tmr = null;
+      let timer = null;
 
       input.addEventListener("input", () => {
-        clearTimeout(tmr);
-        tmr = setTimeout(() => updateSearchResults(input.value || ""), SEARCH_DEBOUNCE_MS);
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          updateSearchResults(input.value || "");
+        }, SEARCH_DEBOUNCE_MS);
       });
 
       input.addEventListener("keydown", (e) => {
@@ -502,20 +495,26 @@
   // NAV RENDERERS
   // =========================
   function wireTopFlyouts() {
-    for (const item of $$(".topworks-item")) {
-      const trigger = $(".topworks-trigger", item);
-      if (!trigger) continue;
-
-      trigger.onclick = (e) => {
-        e.preventDefault();
-        item.classList.toggle("open");
-      };
-    }
+    if (topFlyoutsWired) return;
+    topFlyoutsWired = true;
 
     document.addEventListener("click", (e) => {
-      if (e.target.closest(".topworks-item")) return;
-      $$(".topworks-item.open").forEach(x => x.classList.remove("open"));
-    }, { passive: true });
+      const trigger = e.target.closest(".topworks-trigger");
+      if (trigger) {
+        const item = trigger.closest(".topworks-item");
+        if (item) {
+          e.preventDefault();
+          const wasOpen = item.classList.contains("open");
+          $$(".topworks-item.open").forEach((x) => x.classList.remove("open"));
+          if (!wasOpen) item.classList.add("open");
+        }
+        return;
+      }
+
+      if (!e.target.closest(".topworks-item")) {
+        $$(".topworks-item.open").forEach((x) => x.classList.remove("open"));
+      }
+    });
   }
 
   function renderWorksNav() {
@@ -541,6 +540,7 @@
       for (const entry of entries) {
         const label = entryDisplay(work, entry);
         const active = isActive && normalizeKey(entry.slug) === normalizeKey(CURRENT_FILE) ? " active" : "";
+
         html += `
           <a
             href="?dir=${encodeURIComponent(work.slug)}&file=${encodeURIComponent(entry.slug)}&p=1"
@@ -559,7 +559,6 @@
     }
 
     nav.innerHTML = html;
-    wireTopFlyouts();
 
     nav.onclick = (e) => {
       const a = e.target.closest("a[data-dir][data-file]");
@@ -570,7 +569,7 @@
   }
 
   function groupArchiveAlphabetically() {
-    const works = [...ARCHIVE_WORKS].filter(x => x?.slug);
+    const works = [...ARCHIVE_WORKS].filter((x) => x?.slug);
     works.sort((a, b) => a.display.localeCompare(b.display));
 
     const grouped = new Map();
@@ -594,6 +593,7 @@
 
       for (const work of works) {
         const isOpen = normalizeKey(work.slug) === normalizeKey(CURRENT_DIR);
+
         html += `
           <div class="library-item${isOpen ? " open" : ""}" data-dir="${escapeHtml(work.slug)}">
             <button class="library-trigger" type="button">
@@ -655,13 +655,13 @@
     d.id = item.anchor;
 
     const title = escapeHtml(item.label || item.title || `Page ${idx + 1}`);
-    const workTitle = currentMetaLine() ? `<div class="id">${escapeHtml(currentMetaLine())}</div>` : "";
+    const metaLine = currentMetaLine();
 
     d.innerHTML = `
       <summary>
         <div class="leftstack">
           <div class="doc">${title}</div>
-          ${workTitle}
+          ${metaLine ? `<div class="id">${escapeHtml(metaLine)}</div>` : ""}
         </div>
 
         <div class="actions">
@@ -694,14 +694,28 @@
       frag.appendChild(makeDetails(item, localIdx));
 
       const globalPos = ((CURRENT_UI_PAGE - 1) * UI_PAGE_SIZE) + localIdx + 1;
-      const isGap = betweenEvery > 0 && betweenSlots > 0 && (globalPos % betweenEvery === 0) && (localIdx + 1) < visibleItems.length;
+      const shouldInsertBetween =
+        betweenEvery > 0 &&
+        betweenSlots > 0 &&
+        globalPos % betweenEvery === 0 &&
+        localIdx + 1 < visibleItems.length;
 
-      if (isGap) {
+      if (shouldInsertBetween) {
         frag.appendChild(buildBetweenAd(betweenSlots));
       }
     });
 
     container.appendChild(frag);
+  }
+
+  function renderRightRail() {
+    const rail = $("#rightRail");
+    if (!rail) return;
+
+    const rightId = CURRENT_ITEM_JSON?.subids?.right ?? "";
+    rail.innerHTML = `
+      <div class="exo-slot">Right rail ad slot${rightId ? `<br>subid: ${escapeHtml(String(rightId))}` : ""}</div>
+    `;
   }
 
   function render() {
@@ -713,20 +727,24 @@
     renderVisibleItems(container);
 
     const finalBlock = CURRENT_ITEM_JSON?.ads?.final_block || 0;
-    if (finalBlock > 0 && !$("#endAds")) {
+    if (finalBlock > 0) {
       container.appendChild(buildEndAds(finalBlock));
     }
 
+    renderRightRail();
+
     const meta = $("#meta");
-    if (meta) meta.textContent = `Pages: ${ITEMS.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
+    if (meta) {
+      meta.textContent = `Pages: ${ITEMS.length} • ${getUiPageLabel(CURRENT_UI_PAGE)}`;
+    }
 
     if (OPEN_FIRST_ON_LOAD) {
-      openFirstVisibleChapter({ scroll: false });
+      openFirstVisibleCard({ scroll: false });
     }
   }
 
   // =========================
-  // OPEN/CLOSE IMAGE
+  // DETAILS OPEN/CLOSE
   // =========================
   document.addEventListener("toggle", (e) => {
     const d = e.target;
@@ -745,7 +763,7 @@
 
       const isMobile = window.matchMedia("(max-width: 900px)").matches;
       if (!isMobile && CLOSE_OTHERS_ON_OPEN) {
-        $$("details.card[open]").forEach(x => {
+        $$("details.card[open]").forEach((x) => {
           if (x !== d) x.open = false;
         });
       }
@@ -765,11 +783,13 @@
     }
   }, true);
 
-  function openFirstVisibleChapter({ scroll = false } = {}) {
+  function openFirstVisibleCard({ scroll = false } = {}) {
     const first = $("details.card");
     if (!first) return;
     first.open = true;
-    if (scroll) first.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (scroll) {
+      first.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   function openHashTarget() {
@@ -810,6 +830,7 @@
     try {
       await loadWorksManifest();
       wireSearchUI();
+      wireTopFlyouts();
 
       const first = getFirstKnownWork();
       const qs = getQueryState();
@@ -846,11 +867,19 @@
         });
       }
 
-      window.addEventListener("popstate", async () => {
-        const state = getQueryState();
-        const firstKnown = getFirstKnownWork();
-        await switchWork(state.dir || firstKnown.dir, state.file || firstKnown.file, state.p || 1, true);
-      });
+      if (!popstateWired) {
+        popstateWired = true;
+        window.addEventListener("popstate", async () => {
+          const state = getQueryState();
+          const firstKnown = getFirstKnownWork();
+          await switchWork(
+            state.dir || firstKnown.dir,
+            state.file || firstKnown.file,
+            state.p || 1,
+            true
+          );
+        });
+      }
     } catch (err) {
       console.error(err);
       const meta = $("#meta");
